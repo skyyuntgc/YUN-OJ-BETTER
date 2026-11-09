@@ -1,8 +1,9 @@
 // ==UserScript==
 // @name         Yun OJ Better
+// @author       Sky-Yun
 // @namespace    https://github.com/skyyuntgc/YUN-OJ-BETTER
-// @version      1.8.2
-// @description  通用 OJ 增强：AI 解答（KaTeX + 思考过程 + 连接状态 + 断线恢复）、原题机搜索、智谱联网搜索、自动翻译、样例复制、复制题面、深色模式、快速跳转、手动配置 OJ、多套 AI 配置、自定义翻译（1.8.2 修复样例首行纯数字丢失）
+// @version      1.8.3
+// @description  通用 OJ 增强：AI 解答、搜题、翻译、样例复制、复制题面、深色模式、快速跳转
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -10,6 +11,8 @@
 // @grant        GM_xmlhttpRequest
 // @connect      *
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/skyyuntgc/YUN-OJ-BETTER/main/yun-oj-better.js
+// @downloadURL  https://raw.githubusercontent.com/skyyuntgc/YUN-OJ-BETTER/main/yun-oj-better.js
 // ==/UserScript==
 
 (function () {
