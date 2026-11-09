@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Yun OJ Better
-// @namespace    https://github.com/ojbetter
-// @version      1.8.0
-// @description  通用 OJ 增强：AI 解答（KaTeX + 思考过程 + 连接状态 + 断线恢复）、原题机搜索、智谱联网搜索、自动翻译、样例复制、复制题面、深色模式、快速跳转、手动配置 OJ、多套 AI 配置、自定义翻译
+// @namespace    https://github.com/skyyuntgc/YUN-OJ-BETTER
+// @version      1.8.2
+// @description  通用 OJ 增强：AI 解答（KaTeX + 思考过程 + 连接状态 + 断线恢复）、原题机搜索、智谱联网搜索、自动翻译、样例复制、复制题面、深色模式、快速跳转、手动配置 OJ、多套 AI 配置、自定义翻译（1.8.2 修复样例首行纯数字丢失）
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -41,9 +41,9 @@
     customTransHeaders: '{\n  "Content-Type": "application/json",\n  "Authorization": "Bearer sk-..."\n}',
     customTransBody: '{\n  "model": "glm-4-flash",\n  "messages": [\n    {"role": "user", "content": "Translate the following text to {{target}}. Only output the translated text, no explanation.\\n\\n{{text}}"}\n  ]\n}',
     customTransExtract: 'choices[0].message.content',
-    
+
     aiBase: 'https://api.deepseek.com/v1', aiKey: '', aiModel: 'deepseek-chat',
-    aiSystem: '你是一名信息学竞赛教练。请根据题目给出：1) 简洁的思路分析；2) C++17 完整可运行代码；3) 时间复杂度。用中文回答，代码用 ```cpp 包裹。',
+    aiSystem: '你是一名信息学竞赛教练。请根据题目给出：1) 简洁的思路分析；2) C++14 完整可运行代码；3) 时间复杂度。用中文回答，代码用 ```cpp 包裹。',
     aiProfiles: '[]', aiActiveProfile: 0,
     posBar: null, posSearch: null, posFab: null, posPanel: null, posTrans: null, posReentry: null, posOjConfig: null, posAi: null, posAiCfg: null,
   };
@@ -358,7 +358,7 @@
     return best;
   }
 
-  const COMMON_NOISE = ['button', 'script', 'style', 'noscript', 'nav', 'header', 'footer', 'aside', '[role="tablist"]', '[role="navigation"]', '[role="banner"]', '[class*="tab-bar"]', '[class*="tabs-nav"]', '[class*="tabbar"]', '[class*="sidebar"]', '[class*="side-bar"]', '[class*="side-nav"]', '[class*="nav-bar"]', '[class*="navbar"]', '[class*="nav-list"]', '[class*="breadcrumb"]', '[class*="crumb"]', '[class*="problem-list"]', '[class*="problem-nav"]', '[class*="contest-header"]', '[class*="contest-info"]', '[class*="typography-copy"]', '[class*="copy-btn"]', '[class*="copy-code"]', '[class*="pagination"]', '[class*="feedback"]', '[class*="code-mirror"]', '[class*="codeMirror"]', '[class*="editor-toolbar"]', '[class*="toolbar"]', '.yunoj-copy', '.yunoj-jump', '.yunoj-statement-btn', '#yunoj-jump', '#yunoj-fab', '#yunoj-panel', '#yunoj-search', '#yunoj-trans', '#yunoj-ask', '#yunoj-reentry', '#yunoj-oj-config', '#yunoj-ai', '#yunoj-ai-cfg', '#yunoj-trans-cfg'];
+  const COMMON_NOISE = ['button', 'script', 'style', 'noscript', 'nav', 'header', 'footer', 'aside', '[role="tablist"]', '[role="navigation"]', '[role="banner"]', '[class*="tab-bar"]', '[class*="tabs-nav"]', '[class*="tabbar"]', '[class*="sidebar"]', '[class*="side-bar"]', '[class*="side-nav"]', '[class*="nav-bar"]', '[class*="navbar"]', '[class*="nav-list"]', '[class*="breadcrumb"]', '[class*="crumb"]', '[class*="problem-list"]', '[class*="problem-nav"]', '[class*="contest-header"]', '[class*="contest-info"]', '[class*="typography-copy"]', '[class*="copy-btn"]', '[class*="copy-code"]', '[aria-label="复制"]', '[aria-label="copy"]', '.anticon-copy', '.ac-ant-typography-copy', '[class*="pagination"]', '[class*="feedback"]', '[class*="code-mirror"]', '[class*="codeMirror"]', '[class*="editor-toolbar"]', '[class*="toolbar"]', '.yunoj-copy', '.yunoj-jump', '.yunoj-statement-btn', '#yunoj-jump', '#yunoj-fab', '#yunoj-panel', '#yunoj-search', '#yunoj-trans', '#yunoj-ask', '#yunoj-reentry', '#yunoj-oj-config', '#yunoj-ai', '#yunoj-ai-cfg', '#yunoj-trans-cfg'];
 
   function cloneStatementForExtract() {
     const root = findStatementRoot();
@@ -370,18 +370,52 @@
     return clone;
   }
 
+  // ============================================================
+  // 题面提取（含样例保护，避免纯数字行被 LINE_NOISE 误删）
+  // ============================================================
   function extractStatement() {
     const clone = cloneStatementForExtract();
     if (!clone) return '';
+
+    // 1) 先把样例代码块（<pre>/<textarea>）整体换成占位符，过滤后再原样还原，
+    //    防止样例首行是纯数字（如 cid 输入 0、T 输入 1）时被 LINE_NOISE 误删。
+    const sampleBlocks = [];
+    clone.querySelectorAll('pre, textarea').forEach(node => {
+      // 清掉内部可能残留的"复制"按钮
+      try {
+        node.querySelectorAll('[class*="typography-copy"], [class*="copy-btn"], [aria-label="复制"], [aria-label="copy"], .anticon-copy, button').forEach(n => n.remove());
+      } catch (e) {}
+      const raw = node.tagName === 'TEXTAREA' ? (node.value || '') : (node.textContent || '');
+      const t = raw.replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/^\n+|\n+$/g, '');
+      if (!t.trim()) return;
+      const idx = sampleBlocks.length;
+      sampleBlocks.push(t);
+      const ph = document.createElement('div');
+      ph.textContent = '\n@@YUNOJ_SAMPLE_' + idx + '@@\n';
+      if (node.parentNode) node.parentNode.replaceChild(ph, node);
+    });
+
     const temp = el('div');
     temp.style.cssText = 'position:fixed;left:-99999px;top:0;width:800px;visibility:hidden;';
     temp.appendChild(clone);
     document.body.appendChild(temp);
     let text = clone.innerText || clone.textContent || '';
     document.body.removeChild(temp);
+
     const uname = getUsername();
     if (uname && uname.length >= 2) text = text.replace(new RegExp(escapeRe(uname), 'g'), '');
-    const LINE_NOISE = [/^必做题$/, /^选做题$/, /^文件操作$/, /^\d+\s*分$/, /^[一二三四五六七八九十]、\s*.*编程题/, /^做题分析$/, /^必做题完成率$/, /^\d+(\.\d+)?%$/, /^基本信息$/, /^题目列表$/, /^订正$/, /^订正得分$/, /^赛中得分$/, /^得分[:：].*/, /^最新提交.*/, /^历史最高.*/, /^Accepted.*/, /^提交记录$/, /^题解$/, /^高分代码$/, /^题目描述$/, /^\d{8}$/, /^\d{4}-\d{2}-\d{2}.*/, /^C\+\+\d*$/, /^自测样例$/, /^最新编译结果.*$/, /^\d+$/, /^暂无数据$/, /^empty image$/i, /^[\s分]+$/, /^\d+\s*\/\s*\d+$/, /^example\.zip$/i];
+
+    const LINE_NOISE = [
+      /^必做题$/, /^选做题$/, /^文件操作$/, /^\d+\s*分$/, /^[一二三四五六七八九十]、\s*.*编程题/,
+      /^做题分析$/, /^必做题完成率$/, /^\d+(\.\d+)?%$/, /^基本信息$/, /^题目列表$/, /^订正$/,
+      /^订正得分$/, /^赛中得分$/, /^得分[:：].*/, /^最新提交.*/, /^历史最高.*/, /^Accepted.*/,
+      /^提交记录$/, /^题解$/, /^高分代码$/, /^题目描述$/,
+      // 注意：去掉了 /^\d+$/ —— 它会误删样例/正文里的纯数字行（如样例输入第一行的 0 或 1）
+      /^\d{8}$/, /^\d{4}-\d{2}-\d{2}.*/,
+      /^C\+\+\d*$/, /^自测样例$/, /^最新编译结果.*$/, /^暂无数据$/, /^empty image$/i,
+      /^[\s分]+$/, /^\d+\s*\/\s*\d+$/, /^example\.zip$/i
+    ];
+
     const kept = [];
     for (const line of text.split('\n')) {
       let t = line.replace(/[ \t]+/g, ' ').replace(/\s+$/, '').trim();
@@ -390,7 +424,14 @@
       if (/^[（(）)\[\]【】、，。：:;；\-—\s]+$/.test(t)) continue;
       kept.push(t);
     }
-    return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+
+    // 2) 还原样例块（内部内容原样保留，不受 LINE_NOISE 影响）
+    let out = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    out = out.replace(/@@YUNOJ_SAMPLE_(\d+)@@/g, (m, i) => {
+      const v = sampleBlocks[parseInt(i, 10)];
+      return v == null ? m : v;
+    });
+    return out;
   }
 
   function extractDescription() {
@@ -436,17 +477,17 @@
     const method = get('customTransMethod') || 'POST';
     let headers = {};
     try { headers = JSON.parse(get('customTransHeaders') || '{}'); } catch (e) { throw new Error('请求头不是合法的 JSON'); }
-    
+
     let bodyTpl = get('customTransBody') || '';
     // 替换变量（防转义处理）
     const payload = bodyTpl.replace(/\{\{text\}\}/g, text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')).replace(/\{\{target\}\}/g, target);
-    
+
     const opts = { method, url, headers, timeout: 20000 };
     if (method === 'POST') opts.data = payload;
-    
+
     const res = await gmFetch(opts);
     if (res.status !== 200) throw new Error('自定义 API HTTP ' + res.status);
-    
+
     let output = '';
     try {
       const json = JSON.parse(res.responseText);
@@ -458,7 +499,7 @@
     } catch (e) {
       output = res.responseText;
     }
-    
+
     if (!output) throw new Error('自定义翻译提取不到有效内容');
     return output.trim();
   }
@@ -1039,7 +1080,7 @@
       return wrap;
     };
     customFields.appendChild(mkArea('请求 URL', 'customTransUrl', 'https://api.openai.com/v1/chat/completions'));
-    
+
     const methodWrap = el('div', { class: 'yunoj-ai-cfg-field' });
     methodWrap.appendChild(el('label', { class: 'yunoj-ai-cfg-label' }, '请求方法'));
     const methodSel = el('select', { class: 'yunoj-ai-cfg-input' });
@@ -1053,7 +1094,7 @@
     customFields.appendChild(mkArea('响应提取路径 (如 choices[0].message.content)', 'customTransExtract', 'choices[0].message.content', 2));
 
     customFields.appendChild(el('div', { class: 'yunoj-ai-cfg-tip' }, '占位符说明：{{text}} 会被替换为待翻译内容，{{target}} 替换为目标语言（如 zh-CN 或 en）。提取路径支持点号提取 JSON，例如 data.translations[0].text。若留空则原样返回响应文本。'));
-    
+
     panel.appendChild(customFields);
 
     const actions = el('div', { class: 'yunoj-ai-cfg-actions' });
@@ -1405,7 +1446,7 @@
     const ck = [mk('origin', '原题识别'), mk('search', '原题搜索'), mk('translate', '自动翻译'), mk('ai', 'AI 解答'), mk('statement', '复制题面'), mk('sample', '样例复制'), mk('dark', '深色模式')];
     const save = el('button', { class: 'yunoj-save', type: 'button' }, '保存');
     ck.forEach(c => p.appendChild(c)); p.appendChild(save);
-    
+
     const aiCfgBtn = el('button', { class: 'yunoj-ojconfig-open', type: 'button' }, 'AI 设置');
     aiCfgBtn.onclick = () => { aiConfigPanel(); const c = $('#yunoj-ai-cfg'); if (c) c.style.display = 'block'; p.style.display = 'none'; };
     p.appendChild(aiCfgBtn);
@@ -1698,6 +1739,54 @@
   // ============================================================
   // 初始化
   // ============================================================
+  function modifyLuckText() {
+    // 仅在洛谷域名下生效
+    if (!location.hostname.includes('luogu.com.cn')) return;
+
+    const replacements = {
+      '大凶': '大区',
+      '小凶': '小区',
+      '中平': '中区',
+      '小吉': '小区',
+      '大吉': '大区'
+    };
+
+    const changeText = (elem) => {
+      if (!elem) return;
+      let html = elem.innerHTML;
+      let changed = false;
+      for (const [k, v] of Object.entries(replacements)) {
+        if (html.includes(k)) {
+          html = html.replace(new RegExp(k, 'g'), v);
+          changed = true;
+        }
+      }
+      if (changed) elem.innerHTML = html;
+    };
+
+    // 1. 处理页面加载时已有的运势结果
+    document.querySelectorAll('.lg-punch-result').forEach(changeText);
+
+    // 2. 监听打卡后的局部刷新
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+          mutation.addedNodes.forEach(node => {
+            if (node.nodeType === 1) {
+              if (node.matches && node.matches('.lg-punch-result')) {
+                changeText(node);
+              } else if (node.querySelectorAll) {
+                node.querySelectorAll('.lg-punch-result').forEach(changeText);
+              }
+            }
+          });
+        }
+      }
+    });
+
+    // 开始监听 body 下的 DOM 变动
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
   function init() {
     css();
     panel();
@@ -1708,6 +1797,7 @@
     aiConfigPanel();
     transConfigPanel();
     applyDark();
+    modifyLuckText();
     if (get('sample')) sampleCopy();
     if (get('origin') || get('statement') || get('search') || get('translate') || get('ai')) jumpBar();
     setTimeout(() => {
