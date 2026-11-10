@@ -2,7 +2,7 @@
 // @name         Yun OJ Better
 // @author       Sky-Yun
 // @namespace    https://github.com/skyyuntgc/YUN-OJ-BETTER
-// @version      1.8.3
+// @version      1.8.4
 // @description  通用 OJ 增强：AI 解答、搜题、翻译、样例复制、复制题面、深色模式、快速跳转
 // @match        *://*/*
 // @grant        GM_getValue
@@ -94,32 +94,45 @@
       name: '洛谷',
       getCode: () => (location.pathname.match(/\/problem\/([A-Za-z0-9_]+)/) || [])[1] || null,
       getTitle: () => {
-        const sels = ['h1', 'h2.title', '.title', '.problem-title', '#problem-title', '.lfe-article h1', '.lfe-article h2'];
+        // 不要用裸 .title：左侧导航里有 <span class="title">主页</span>
+        const sels = [
+          '.header-card .title',          // 新版洛谷
+          '.l-card.header-card .title',
+          'h2.title.lfe-h2',
+          'h2.title',
+          '.problem-title',
+          '#problem-title',
+          '.lfe-article h1',
+          '.lfe-article h2'
+        ];
         for (const sel of sels) {
-          const n = $(sel);
-          if (n) {
-            let t = n.textContent.trim();
+          for (const n of $$(sel)) {
+            if (n.closest('nav, aside, .sidebar, .lside, .user-nav, .top-bar, .breadcrumb')) continue;
+            let t = (n.textContent || '').trim();
+            if (!t || t.length > 200) continue;
             t = t.replace(/^[A-Z]+\d+[A-Za-z_0-9]*\s*/, '').trim();
-            if (t && t.length < 200) return t;
+            if (t && t.length >= 2) return t;
           }
         }
         return document.title.replace(/\s*-\s*洛谷.*$/, '').trim();
       },
       statements: [
+        '.l-card.problem',        // 新版洛谷：整个题面卡片（含样例）
         '.problem-statement',
         '#problem-statement',
+        '.lfe-marked-wrap',       // 新版：题目描述/输入/输出/提示
         '.lfe-article',
         '.markdown-body',
         '.card .content',
         '.problem-content',
-        '.content',
         'article',
         'main'
       ],
       removeSelectors: [
-        'nav', 'header', 'footer', '.side', '.tags', '.status', '.lg-article-tools',
+        'nav', 'header', 'footer', '.side', '.sidebar', '.tags', '.status', '.lg-article-tools',
         '.lfe-header', '.lfe-sidebar', '.operation', '.problem-tags', '.problem-status',
-        '.problem-sidebar', '.problem-header', '.breadcrumb', '.pagination'
+        '.problem-sidebar', '.problem-header', '.breadcrumb', '.pagination',
+        '.problem-block-actions', '.l-card.problem > .lfe-caption', '.btn-actions'
       ],
     },
     'codeforces.com': {
@@ -336,7 +349,7 @@
     for (const sel of fuzzySelectors) {
       try {
         $$(sel).forEach(n => {
-          if (n.closest('nav, header, footer, aside')) return;
+          if (n.closest('nav, header, footer, aside, .sidebar, .lside, .user-nav, .top-bar')) return;
           const len = (n.textContent || '').trim().length;
           if (len < 300 || len > 150000) return;
           if (n.children.length > 100) return;
@@ -349,12 +362,23 @@
   }
 
   function findStatementRoot() {
-    for (const sel of OJ.statements) { let best = null, bestLen = 0; try { $$(sel).forEach(n => { const len = (n.textContent || '').trim().length; if (len > bestLen && len < 200000) { best = n; bestLen = len; } }); } catch (e) {} if (best && bestLen > 200) return best; }
+    for (const sel of OJ.statements) {
+      let best = null, bestLen = 0;
+      try {
+        $$(sel).forEach(n => {
+          // 排除导航/侧栏，避免命中包住整页的容器
+          if (n.closest && n.closest('nav, aside, .sidebar, .side, .lside, .user-nav, .top-bar, .breadcrumb')) return;
+          const len = (n.textContent || '').trim().length;
+          if (len > bestLen && len < 200000) { best = n; bestLen = len; }
+        });
+      } catch (e) {}
+      if (best && bestLen > 200) return best;
+    }
     const fuzzy = findStatementByFuzzy(); if (fuzzy) return fuzzy;
     const byKw = findStatementByKeywords(); if (byKw) return byKw;
     let best = null, bestLen = 0;
     $$('div, section, article').forEach(d => {
-      if (d.closest('nav, header, footer, aside')) return;
+      if (d.closest('nav, header, footer, aside, .sidebar, .lside, .user-nav, .top-bar')) return;
       const len = (d.textContent || '').trim().length;
       if (len > 800 && len < 100000 && len > bestLen && d.children.length < 60) { best = d; bestLen = len; }
     });
@@ -416,7 +440,12 @@
       // 注意：去掉了 /^\d+$/ —— 它会误删样例/正文里的纯数字行（如样例输入第一行的 0 或 1）
       /^\d{8}$/, /^\d{4}-\d{2}-\d{2}.*/,
       /^C\+\+\d*$/, /^自测样例$/, /^最新编译结果.*$/, /^暂无数据$/, /^empty image$/i,
-      /^[\s分]+$/, /^\d+\s*\/\s*\d+$/, /^example\.zip$/i
+      /^[\s分]+$/, /^\d+\s*\/\s*\d+$/, /^example\.zip$/i,
+      // 洛谷新版侧栏/操作栏噪音
+      /^题目编号$/, /^提供者$/, /^难度$/, /^显示难度$/, /^历史分数$/, /^暂无$/,
+      /^标签$/, /^显示算法标签$/, /^相关讨论$/, /^进入讨论版$/, /^查看讨论$/,
+      /^推荐题目$/, /^查看推荐$/, /^题目反馈$/, /^查看题解$/,
+      /^复制 Markdown$/, /^进入 IDE 模式$/, /^展开$/,
     ];
 
     const kept = [];
@@ -1343,7 +1372,17 @@
   // ============================================================
   // 工具栏
   // ============================================================
-  function buildLuoguURL() { const title = OJ.getTitle(); const code = OJ.getCode(); let kw = title || code || ''; if (OJ.key === 'xinyoudui.com' || OJ.key === 'luogu.com.cn') { const desc = extractDescription(); if (desc && desc.length > 20) kw = (title || '') + ' ' + desc.substring(0, 300); } return `https://www.luogu.com.cn/problem/list?keyword=${encodeURIComponent(kw.trim().substring(0, 200))}`; }
+  function buildLuoguURL() {
+    const title = OJ.getTitle();
+    const code = OJ.getCode();
+    let kw = (title || code || '').trim();
+    // 只有 XYDOJ 才用题面补充关键词；洛谷直接用标题/题号，避免把整页描述带进去
+    if (OJ.key === 'xinyoudui.com' && !title) {
+      const desc = extractDescription();
+      if (desc && desc.length > 20) kw = desc.substring(0, 200);
+    }
+    return `https://www.luogu.com.cn/problem/list?keyword=${encodeURIComponent(kw.substring(0, 200))}`;
+  }
   function getToolbarLabel() { if (OJ.key !== '__default') return OJ.name; const auto = get(autoKey()); if (auto === true) return 'UnknownOJ'; if (auto === false) return '工具'; return looksLikeOJ() ? 'UnknownOJ' : '工具'; }
 
   function jumpBar() {
@@ -1805,7 +1844,21 @@
     if (get('origin') || get('statement') || get('search') || get('translate') || get('ai')) jumpBar();
     setTimeout(() => {
       if (get('sample')) sampleCopy();
-      if (!document.querySelector('#yunoj-jump') && (get('origin') || get('statement') || get('search') || get('translate') || get('ai'))) jumpBar();
+      if (!document.querySelector('#yunoj-jump') && (get('origin') || get('statement') || get('search') || get('translate') || get('ai'))) {
+        jumpBar();
+      } else {
+        // Vue 渲染出标题后，刷新工具栏的 OJ 名称、洛谷链接和题号
+        const bar = document.querySelector('#yunoj-jump');
+        if (bar) {
+          const lb = bar.querySelector('.yunoj-lb');
+          if (lb) lb.textContent = getToolbarLabel();
+          const originLink = bar.querySelector('a[href^="https://www.luogu.com.cn/problem/list"]');
+          if (originLink) originLink.href = buildLuoguURL();
+          const code = OJ.getCode();
+          const pidBtn = bar.querySelector('.yunoj-copy-pid');
+          if (pidBtn && code) pidBtn.textContent = `#${code}`;
+        }
+      }
     }, 1500);
     window.addEventListener('resize', () => {
       ['posBar', 'posSearch', 'posFab', 'posPanel', 'posTrans', 'posReentry', 'posOjConfig', 'posAi', 'posAiCfg'].forEach(key => {
