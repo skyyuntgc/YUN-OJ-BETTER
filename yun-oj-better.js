@@ -2,8 +2,8 @@
 // @name         Yun OJ Better
 // @author       Sky-Yun
 // @namespace    https://github.com/skyyuntgc/YUN-OJ-BETTER
-// @version      1.9.0
-// @description  通用 OJ 增强：AI 解答 + AI 对话、搜题、翻译、样例复制、复制题面、深色模式、快速跳转
+// @version      1.9.1
+// @description  通用 OJ 增强：AI 解答 + AI 对话、搜题、翻译、题面复制、深色模式、快速跳转，不收集用户数据，API Key 本地存储，题面会发往第三方 API
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -582,17 +582,16 @@
   // ============================================================
   // AI（解答 + 对话，分开）
   // ============================================================
-  // 解答模式
   let solveRequest = null;
   let solveLastRun = null;
   let solveBubble = null;
-  // 对话模式
+
   let chatHistory = [];
   let chatProblemInjected = false;
   let chatRequest = null;
   let chatLastRun = null;
   let chatBubble = null;
-  // 共享
+
   let aiTicker = null;
   let aiCurrentTab = 'solve';
 
@@ -804,7 +803,6 @@
     }
   }
 
-  // ---------- 通用流式请求 ----------
   function doStreamingRequest(ctx) {
     const { mode, base, key, model, messages, run, bubble, onFinish } = ctx;
     const myRun = run;
@@ -940,12 +938,10 @@
     if (mode === 'solve') solveRequest = req; else chatRequest = req;
   }
 
-  // ============ 解答模式 ============
   async function startSolve(force) {
     const panel = $('#yunoj-ai');
     if (!panel) return;
 
-    // 切到解答 tab
     switchToTab(panel, 'solve');
     panel.style.display = 'flex';
 
@@ -971,7 +967,6 @@
 
     const hash = statement.slice(0, 300) + '|' + base + '|' + model + '|' + sysPrompt;
 
-    // 非强制且 hash 相同 → 复用已有结果
     if (!force && solveLastRun && solveLastRun.hash === hash) {
       if (hist) {
         hist.innerHTML = '';
@@ -987,12 +982,10 @@
       return;
     }
 
-    // 中止旧请求
     if (solveRequest && typeof solveRequest.abort === 'function') { try { solveRequest.abort(); } catch (e) {} }
     solveRequest = null;
     stopTicker();
 
-    // 清空 UI 并渲染用户提示
     if (hist) hist.innerHTML = '';
     const userBubble = el('div', { class: 'yunoj-ai-msg yunoj-ai-msg-user' });
     userBubble.textContent = '请给出这道题的完整解答。';
@@ -1028,7 +1021,6 @@
     });
   }
 
-  // ============ 对话模式 ============
   async function sendChatMessage(userText, opts) {
     opts = opts || {};
     const panel = $('#yunoj-ai');
@@ -1050,12 +1042,10 @@
     if (!base) { appendSystemTip('❌ 未配置 API 地址（点 ⚙ 打开 AI 设置）'); updateSendButton(); return; }
     if (!key) { appendSystemTip('❌ 未配置 API Key（点 ⚙ 打开 AI 设置）'); updateSendButton(); return; }
 
-    // 初始化
     if (chatHistory.length === 0) {
       chatHistory = [{ role: 'system', content: getSystemPrompt() }];
     }
 
-    // 首次对话自动带题面
     const isFirst = chatHistory.length <= 1 && !chatProblemInjected;
     const shouldInject = opts.injectProblem || isFirst;
 
@@ -1073,7 +1063,6 @@
     const emptyTip = hist && hist.querySelector('.yunoj-ai-empty');
     if (emptyTip) emptyTip.remove();
 
-    // 用户气泡
     if (hist) {
       const b = el('div', { class: 'yunoj-ai-msg yunoj-ai-msg-user' });
       b.textContent = userText;
@@ -1084,7 +1073,6 @@
     chatHistory.push({ role: 'user', content: finalContent });
     trimChatHistory();
 
-    // 中止旧请求
     if (chatRequest && typeof chatRequest.abort === 'function') { try { chatRequest.abort(); } catch (e) {} }
     chatRequest = null;
     stopTicker();
@@ -1124,11 +1112,9 @@
 
   async function regenerateChat() {
     if (chatHistory.length < 2) return;
-    // 移除最后 assistant
     if (chatHistory[chatHistory.length - 1].role === 'assistant') {
       chatHistory.pop();
     }
-    // 移除最后一条 AI 气泡
     const hist = document.querySelector('#yunoj-ai .yunoj-ai-history-chat');
     if (hist) {
       const ais = hist.querySelectorAll('.yunoj-ai-msg-assistant');
@@ -1212,13 +1198,11 @@
     updateSendButton();
   }
 
-  // ---------- AI 面板 ----------
   function aiPanel() {
     if ($('#yunoj-ai')) return;
     const panel = el('div', { id: 'yunoj-ai' });
     panel.style.display = 'none';
 
-    // Header
     const header = el('div', { class: 'yunoj-ai-header' });
     header.appendChild(el('span', { class: 'yunoj-ai-title' }, 'AI 助手'));
     const status = el('span', { class: 'yunoj-ai-status' }, '');
@@ -1253,7 +1237,6 @@
     header.appendChild(closeBtn);
     panel.appendChild(header);
 
-    // Tabs
     const tabs = el('div', { class: 'yunoj-ai-tabs' });
     const tabSolve = el('a', { class: 'yunoj-ai-tab yunoj-ai-tab-active', href: 'javascript:;', 'data-tab': 'solve' }, '🤖 解答');
     const tabChat = el('a', { class: 'yunoj-ai-tab', href: 'javascript:;', 'data-tab': 'chat' }, '💬 对话');
@@ -1263,14 +1246,12 @@
     tabSolve.onclick = () => switchToTab(panel, 'solve');
     tabChat.onclick = () => switchToTab(panel, 'chat');
 
-    // Solve content
     const solveContent = el('div', { class: 'yunoj-ai-content yunoj-ai-content-solve' });
     const solveHist = el('div', { class: 'yunoj-ai-history yunoj-ai-history-solve' });
     solveHist.innerHTML = '<div class="yunoj-ai-empty">点击工具栏「🤖解答」开始解答</div>';
     solveContent.appendChild(solveHist);
     panel.appendChild(solveContent);
 
-    // Chat content
     const chatContent = el('div', { class: 'yunoj-ai-content yunoj-ai-content-chat' });
     chatContent.style.display = 'none';
     const chatHist = el('div', { class: 'yunoj-ai-history yunoj-ai-history-chat' });
@@ -1290,7 +1271,6 @@
     chatContent.appendChild(inputArea);
     panel.appendChild(chatContent);
 
-    // Footer
     const footer = el('div', { class: 'yunoj-ai-footer' });
     footer.appendChild(el('span', { class: 'yunoj-ai-model' }, ''));
     panel.appendChild(footer);
@@ -1298,7 +1278,6 @@
     document.body.appendChild(panel);
     makeDraggable(panel, 'posAi');
 
-    // 输入事件
     const doSend = () => {
       const text = textarea.value.trim();
       if (!text || sendBtn.disabled) return;
@@ -1317,7 +1296,6 @@
     });
     sendBtn.addEventListener('click', doSend);
 
-    // 代码复制事件委托
     const bindCopy = (root) => {
       root.addEventListener('click', e => {
         const btn = e.target.closest('.yunoj-ai-code-copy');
@@ -1347,7 +1325,6 @@
     ensureKatex().catch(() => {});
   }
 
-  // ============ AI 设置 ============
   function aiConfigPanel() {
     if ($('#yunoj-ai-cfg')) return;
     const panel = el('div', { id: 'yunoj-ai-cfg' });
@@ -1445,7 +1422,6 @@
     makeDraggable(panel, 'posAiCfg');
   }
 
-  // ============ 自定义翻译设置 ============
   function transConfigPanel() {
     if ($('#yunoj-trans-cfg')) return;
     const panel = el('div', { id: 'yunoj-trans-cfg' });
@@ -1537,9 +1513,6 @@
     makeDraggable(panel, 'posAiCfg');
   }
 
-  // ============================================================
-  // 样例复制
-  // ============================================================
   const SAMPLE_IN_RE = /^(Sample\s*Input\s*\d*|样例输入\s*\d*|输入样例\s*\d*|输入\s*#?\s*\d*|入力例\s*\d*)$/i;
   const SAMPLE_OUT_RE = /^(Sample\s*Output\s*\d*|样例输出\s*\d*|输出样例\s*\d*|输出\s*#?\s*\d*|出力例\s*\d*)$/i;
   function findSampleBlock(from) { let n = from, u = 0; while (n && n !== document.body && u < 6) { let s = n.nextElementSibling, a = 0; while (s && a < 8) { if (/^(PRE|TEXTAREA|CODE)$/.test(s.tagName)) return s; const i = s.querySelector('pre, textarea, code'); if (i) return i; s = s.nextElementSibling; a++; } n = n.parentElement; u++; } return null; }
@@ -1559,9 +1532,6 @@
     });
   }
 
-  // ============================================================
-  // 原题搜索 + 智谱联网搜索
-  // ============================================================
   function searchYuantiji(keyword, callback) {
     if (typeof GM_xmlhttpRequest !== 'function') return callback(new Error('GM_xmlhttpRequest 不可用'));
     const query = keyword.length > 15000 ? keyword.substring(0, 15000) : keyword;
@@ -1731,9 +1701,6 @@
     panel.__kwInput = kwInput;
   }
 
-  // ============================================================
-  // 工具栏
-  // ============================================================
   function buildLuoguURL() {
     const title = OJ.getTitle();
     const code = OJ.getCode();
@@ -1799,9 +1766,6 @@
 
   const applyDark = () => document.documentElement.classList.toggle('yunoj-dark', get('dark'));
 
-  // ============================================================
-  // 自定义 OJ
-  // ============================================================
   let __refreshOjList = null;
   function ojConfigPanel() {
     if ($('#yunoj-oj-config')) return;
@@ -1856,9 +1820,6 @@
     makeDraggable(panel, 'posOjConfig');
   }
 
-  // ============================================================
-  // 设置面板
-  // ============================================================
   function panel() {
     if ($('#yunoj-fab')) return;
     const fab = el('button', { id: 'yunoj-fab', type: 'button', title: 'Yun OJ Better 设置（可拖动）' }, '⚙');
@@ -1924,9 +1885,6 @@
     makeDraggable(btn, 'posReentry');
   }
 
-  // ============================================================
-  // 拖动
-  // ============================================================
   function setPosition(elem, x, y) { const w = elem.offsetWidth || 100, h = elem.offsetHeight || 40; x = Math.max(0, Math.min(x, window.innerWidth - w)); y = Math.max(0, Math.min(y, window.innerHeight - h)); elem.style.left = x + 'px'; elem.style.top = y + 'px'; elem.style.right = 'auto'; elem.style.bottom = 'auto'; }
   function shouldSkipDrag(e) { const t = e.target; if (t.closest('input, textarea, select, details, summary')) return true; const a = t.closest('a'); if (a) { const href = a.getAttribute('href') || ''; if (!href.startsWith('javascript:')) return true; } return false; }
   function makeDraggable(elem, key) {
@@ -1965,9 +1923,6 @@
     });
   }
 
-  // ============================================================
-  // CSS
-  // ============================================================
   function css() {
     const c = [
       'html.yunoj-dark{filter:invert(.9) hue-rotate(180deg);background:#111}',
@@ -2062,8 +2017,6 @@
       '#yunoj-trans .yunoj-trans-err{color:#c00}',
       '#yunoj-trans .yunoj-trans-progress{position:sticky;top:0;height:3px;background:#eaeef2;border-radius:2px;margin-bottom:10px;overflow:hidden;z-index:1}',
       '#yunoj-trans .yunoj-trans-progress-fill{height:100%;width:0;background:linear-gradient(90deg,#0ea5e9,#0969da);transition:width .3s ease}',
-
-      // —— AI 面板主体 ——
       '#yunoj-ai{position:fixed;top:80px;right:12px;z-index:2147482995;width:560px;height:660px;max-height:88vh;display:flex;flex-direction:column;background:#fff;border:1px solid #ccc;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);font-size:13px;overflow:hidden}',
       '#yunoj-ai .yunoj-ai-header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #eaeef2;background:#f6f8fa;flex-shrink:0}',
       '#yunoj-ai .yunoj-ai-title{font-weight:600;font-size:13px;flex:1}',
@@ -2072,25 +2025,17 @@
       '#yunoj-ai .yunoj-ai-btn:hover{background:#f0f0f0}',
       '#yunoj-ai .yunoj-ai-stop{color:#c00;border-color:#f0c0c0}',
       '#yunoj-ai .yunoj-ai-stop:hover{background:#ffe0e0;border-color:#c00}',
-
-      // —— Tabs ——
       '#yunoj-ai .yunoj-ai-tabs{display:flex;padding:0 10px;background:#f6f8fa;border-bottom:1px solid #eaeef2;flex-shrink:0}',
       '#yunoj-ai .yunoj-ai-tab{padding:8px 16px;font-size:13px;color:#666;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;font-family:inherit}',
       '#yunoj-ai .yunoj-ai-tab:hover{color:#0969da}',
       '#yunoj-ai .yunoj-ai-tab.yunoj-ai-tab-active{color:#0969da;border-bottom-color:#0969da;font-weight:600;background:#fff}',
-
-      // —— Content 容器 ——
       '#yunoj-ai .yunoj-ai-content{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}',
-
-      // —— 消息历史 ——
       '#yunoj-ai .yunoj-ai-history{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-height:0}',
       '#yunoj-ai .yunoj-ai-msg{max-width:88%;padding:8px 12px;border-radius:10px;line-height:1.75;font-size:13.5px;word-break:break-word;user-select:text}',
       '#yunoj-ai .yunoj-ai-msg-user{align-self:flex-end;background:#1a73e8;color:#fff;border-bottom-right-radius:3px;white-space:pre-wrap}',
       '#yunoj-ai .yunoj-ai-msg-assistant{align-self:flex-start;background:#f6f8fa;border:1px solid #eaeef2;color:#222;border-bottom-left-radius:3px;max-width:92%}',
       '#yunoj-ai .yunoj-ai-msg-assistant .yunoj-ai-body{padding:0;background:transparent;overflow:visible;flex:initial;line-height:1.75;font-size:13.5px}',
       '#yunoj-ai .yunoj-ai-system-tip{align-self:center;max-width:92%;padding:6px 10px;border-radius:6px;background:#fff5f5;border:1px solid #fecaca;color:#c00;font-size:12px}',
-
-      // —— 输入区 ——
       '#yunoj-ai .yunoj-ai-input-area{display:flex;gap:8px;align-items:flex-end;padding:8px 10px;border-top:1px solid #eaeef2;background:#fff;flex-shrink:0}',
       '#yunoj-ai .yunoj-ai-newchat{border:1px solid #ccc;border-radius:8px;background:#f6f8fa;color:#444;width:34px;height:34px;font-size:16px;cursor:pointer;font-family:inherit;flex-shrink:0;display:flex;align-items:center;justify-content:center}',
       '#yunoj-ai .yunoj-ai-newchat:hover{background:#eaeef2;border-color:#999}',
@@ -2099,8 +2044,6 @@
       '#yunoj-ai .yunoj-ai-send{border:none;border-radius:8px;background:#0969da;color:#fff;padding:0 14px;height:34px;font-size:13px;cursor:pointer;white-space:nowrap;font-family:inherit}',
       '#yunoj-ai .yunoj-ai-send:hover:not(:disabled){background:#0550ae}',
       '#yunoj-ai .yunoj-ai-send:disabled{background:#bdc1c6;cursor:not-allowed}',
-
-      // —— 旧 body 内部样式（气泡复用）——
       '#yunoj-ai .yunoj-ai-body p{margin:0 0 8px}',
       '#yunoj-ai .yunoj-ai-body h2,#yunoj-ai .yunoj-ai-body h3,#yunoj-ai .yunoj-ai-body h4{margin:12px 0 6px;font-weight:600}',
       '#yunoj-ai .yunoj-ai-body h2{font-size:16px}',
@@ -2131,8 +2074,6 @@
       '#yunoj-ai .katex-display{margin:10px 0;overflow-x:auto;overflow-y:hidden;padding:4px 0}',
       '#yunoj-ai .katex-display > .katex{display:block;text-align:center;white-space:nowrap}',
       '#yunoj-ai .yunoj-spinner{display:inline-block;width:12px;height:12px;border:2px solid #ccc;border-top-color:#0969da;border-radius:50%;animation:yunoj-spin .8s linear infinite;vertical-align:-2px;margin-right:6px}',
-
-      // —— 配置面板 ——
       '#yunoj-ai-cfg,#yunoj-trans-cfg{position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:2147482996;width:460px;padding:16px;background:#fff;border:1px solid #ccc;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);font-size:13px}',
       '#yunoj-ai-cfg .yunoj-ai-cfg-header,#yunoj-trans-cfg .yunoj-ai-cfg-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}',
       '#yunoj-ai-cfg .yunoj-ai-cfg-title,#yunoj-trans-cfg .yunoj-ai-cfg-title{font-weight:600;font-size:14px;flex:1}',
@@ -2155,8 +2096,6 @@
       '#yunoj-ai-cfg .yunoj-ai-cfg-save,#yunoj-trans-cfg .yunoj-ai-cfg-save{padding:5px 16px;border:none;border-radius:4px;background:#0969da;color:#fff;text-decoration:none;font-size:12px;cursor:pointer;font-family:inherit}',
       '#yunoj-ai-cfg .yunoj-ai-cfg-save:hover,#yunoj-trans-cfg .yunoj-ai-cfg-save:hover{background:#0550ae}',
       '.yunoj-trans-custom-fields textarea.yunoj-ai-cfg-input{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.4;resize:vertical}',
-
-      // —— Ask / 其它 ——
       '#yunoj-ask{position:fixed;right:18px;bottom:80px;z-index:2147483002;width:320px;padding:16px;background:#fff;border:1px solid #ccc;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);font-family:system-ui,sans-serif;font-size:13px;color:#222;box-sizing:border-box}',
       '#yunoj-ask .yunoj-ask-title{font-weight:600;font-size:14px;margin-bottom:6px}',
       '#yunoj-ask .yunoj-ask-desc{color:#666;font-size:12.5px;line-height:1.6;margin-bottom:12px}',
@@ -2194,9 +2133,6 @@
     else { const s = el('style'); s.textContent = c; document.head.appendChild(s); }
   }
 
-  // ============================================================
-  // 初始化
-  // ============================================================
   function modifyLuckText() {
     if (!location.hostname.includes('luogu.com.cn')) return;
     const replacements = { '大凶': '大区', '小凶': '小区', '中平': '中区', '小吉': '小区', '大吉': '大区' };
@@ -2224,7 +2160,13 @@
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
+
   function init() {
+    // 核心修复：清理可能残留的旧 UI 节点，防止 VJudge 等 SPA 网站出现双重工具栏/窗口
+    ['#yunoj-jump', '#yunoj-fab', '#yunoj-panel', '#yunoj-search', '#yunoj-trans', '#yunoj-ai', '#yunoj-ai-cfg', '#yunoj-trans-cfg', '#yunoj-ask', '#yunoj-oj-config', '#yunoj-reentry'].forEach(sel => {
+      $$(sel).forEach(n => n.remove());
+    });
+
     css();
     panel();
     searchPanel();
@@ -2264,6 +2206,10 @@
   }
 
   function boot() {
+    // 防止脚本在 SPA 应用中重复执行
+    if (window.__yunoj_script_loaded) return;
+    window.__yunoj_script_loaded = true;
+
     if (OJ.key !== '__default') { init(); return; }
     const pref = getPref();
     if (pref === 'yes') { const auto = get(autoKey()); if (auto === undefined || auto === null) { set(autoKey(), looksLikeOJ()); } init(); return; }
