@@ -2,8 +2,8 @@
 // @name         Yun OJ Better
 // @author       Sky-Yun
 // @namespace    https://github.com/skyyuntgc/YUN-OJ-BETTER
-// @version      1.8.4
-// @description  通用 OJ 增强：AI 解答、搜题、翻译、样例复制、复制题面、深色模式、快速跳转
+// @version      1.9.0
+// @description  通用 OJ 增强：AI 解答 + AI 对话、搜题、翻译、样例复制、复制题面、深色模式、快速跳转
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -94,17 +94,7 @@
       name: '洛谷',
       getCode: () => (location.pathname.match(/\/problem\/([A-Za-z0-9_]+)/) || [])[1] || null,
       getTitle: () => {
-        // 不要用裸 .title：左侧导航里有 <span class="title">主页</span>
-        const sels = [
-          '.header-card .title',          // 新版洛谷
-          '.l-card.header-card .title',
-          'h2.title.lfe-h2',
-          'h2.title',
-          '.problem-title',
-          '#problem-title',
-          '.lfe-article h1',
-          '.lfe-article h2'
-        ];
+        const sels = ['.header-card .title', '.l-card.header-card .title', 'h2.title.lfe-h2', 'h2.title', '.problem-title', '#problem-title', '.lfe-article h1', '.lfe-article h2'];
         for (const sel of sels) {
           for (const n of $$(sel)) {
             if (n.closest('nav, aside, .sidebar, .lside, .user-nav, .top-bar, .breadcrumb')) continue;
@@ -116,24 +106,8 @@
         }
         return document.title.replace(/\s*-\s*洛谷.*$/, '').trim();
       },
-      statements: [
-        '.l-card.problem',        // 新版洛谷：整个题面卡片（含样例）
-        '.problem-statement',
-        '#problem-statement',
-        '.lfe-marked-wrap',       // 新版：题目描述/输入/输出/提示
-        '.lfe-article',
-        '.markdown-body',
-        '.card .content',
-        '.problem-content',
-        'article',
-        'main'
-      ],
-      removeSelectors: [
-        'nav', 'header', 'footer', '.side', '.sidebar', '.tags', '.status', '.lg-article-tools',
-        '.lfe-header', '.lfe-sidebar', '.operation', '.problem-tags', '.problem-status',
-        '.problem-sidebar', '.problem-header', '.breadcrumb', '.pagination',
-        '.problem-block-actions', '.l-card.problem > .lfe-caption', '.btn-actions'
-      ],
+      statements: ['.l-card.problem', '.problem-statement', '#problem-statement', '.lfe-marked-wrap', '.lfe-article', '.markdown-body', '.card .content', '.problem-content', 'article', 'main'],
+      removeSelectors: ['nav', 'header', 'footer', '.side', '.sidebar', '.tags', '.status', '.lg-article-tools', '.lfe-header', '.lfe-sidebar', '.operation', '.problem-tags', '.problem-status', '.problem-sidebar', '.problem-header', '.breadcrumb', '.pagination', '.problem-block-actions', '.l-card.problem > .lfe-caption', '.btn-actions'],
     },
     'codeforces.com': {
       name: 'Codeforces',
@@ -366,7 +340,6 @@
       let best = null, bestLen = 0;
       try {
         $$(sel).forEach(n => {
-          // 排除导航/侧栏，避免命中包住整页的容器
           if (n.closest && n.closest('nav, aside, .sidebar, .side, .lside, .user-nav, .top-bar, .breadcrumb')) return;
           const len = (n.textContent || '').trim().length;
           if (len > bestLen && len < 200000) { best = n; bestLen = len; }
@@ -397,21 +370,12 @@
     return clone;
   }
 
-  // ============================================================
-  // 题面提取（含样例保护，避免纯数字行被 LINE_NOISE 误删）
-  // ============================================================
   function extractStatement() {
     const clone = cloneStatementForExtract();
     if (!clone) return '';
-
-    // 1) 先把样例代码块（<pre>/<textarea>）整体换成占位符，过滤后再原样还原，
-    //    防止样例首行是纯数字（如 cid 输入 0、T 输入 1）时被 LINE_NOISE 误删。
     const sampleBlocks = [];
     clone.querySelectorAll('pre, textarea').forEach(node => {
-      // 清掉内部可能残留的"复制"按钮
-      try {
-        node.querySelectorAll('[class*="typography-copy"], [class*="copy-btn"], [aria-label="复制"], [aria-label="copy"], .anticon-copy, button').forEach(n => n.remove());
-      } catch (e) {}
+      try { node.querySelectorAll('[class*="typography-copy"], [class*="copy-btn"], [aria-label="复制"], [aria-label="copy"], .anticon-copy, button').forEach(n => n.remove()); } catch (e) {}
       const raw = node.tagName === 'TEXTAREA' ? (node.value || '') : (node.textContent || '');
       const t = raw.replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/^\n+|\n+$/g, '');
       if (!t.trim()) return;
@@ -437,11 +401,9 @@
       /^做题分析$/, /^必做题完成率$/, /^\d+(\.\d+)?%$/, /^基本信息$/, /^题目列表$/, /^订正$/,
       /^订正得分$/, /^赛中得分$/, /^得分[:：].*/, /^最新提交.*/, /^历史最高.*/, /^Accepted.*/,
       /^提交记录$/, /^题解$/, /^高分代码$/, /^题目描述$/,
-      // 注意：去掉了 /^\d+$/ —— 它会误删样例/正文里的纯数字行（如样例输入第一行的 0 或 1）
       /^\d{8}$/, /^\d{4}-\d{2}-\d{2}.*/,
       /^C\+\+\d*$/, /^自测样例$/, /^最新编译结果.*$/, /^暂无数据$/, /^empty image$/i,
       /^[\s分]+$/, /^\d+\s*\/\s*\d+$/, /^example\.zip$/i,
-      // 洛谷新版侧栏/操作栏噪音
       /^题目编号$/, /^提供者$/, /^难度$/, /^显示难度$/, /^历史分数$/, /^暂无$/,
       /^标签$/, /^显示算法标签$/, /^相关讨论$/, /^进入讨论版$/, /^查看讨论$/,
       /^推荐题目$/, /^查看推荐$/, /^题目反馈$/, /^查看题解$/,
@@ -457,7 +419,6 @@
       kept.push(t);
     }
 
-    // 2) 还原样例块（内部内容原样保留，不受 LINE_NOISE 影响）
     let out = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
     out = out.replace(/@@YUNOJ_SAMPLE_(\d+)@@/g, (m, i) => {
       const v = sampleBlocks[parseInt(i, 10)];
@@ -488,7 +449,6 @@
   async function translateGoogle(text, target = 'zh-CN') { const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(target)}&dt=t&q=${encodeURIComponent(text)}`; const res = await gmFetch({ method: 'GET', url, timeout: 15000 }); if (res.status !== 200) throw new Error('Google HTTP ' + res.status); const json = JSON.parse(res.responseText); const arr = json[0] || []; return arr.map(item => item[0] || '').join(''); }
   async function translateMyMemory(text, target = 'zh-CN') { const lp = `en|${target}`; const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(lp)}`; const res = await gmFetch({ method: 'GET', url, timeout: 15000 }); if (res.status !== 200) throw new Error('MyMemory HTTP ' + res.status); const json = JSON.parse(res.responseText); const t = json && json.responseData && json.responseData.translatedText; if (!t) throw new Error('MyMemory 无翻译结果'); return t; }
 
-  // 自定义翻译解析器：利用点号路径安全提取 JSON 字段
   function extractByPath(obj, path) {
     if (!path) return obj;
     try {
@@ -511,7 +471,6 @@
     try { headers = JSON.parse(get('customTransHeaders') || '{}'); } catch (e) { throw new Error('请求头不是合法的 JSON'); }
 
     let bodyTpl = get('customTransBody') || '';
-    // 替换变量（防转义处理）
     const payload = bodyTpl.replace(/\{\{text\}\}/g, text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')).replace(/\{\{target\}\}/g, target);
 
     const opts = { method, url, headers, timeout: 20000 };
@@ -545,7 +504,6 @@
     if (provider === 'mymemory') {
       return await translateMyMemory(text, target);
     }
-    // 默认 Google 优先，失败自动回退 MyMemory
     try { return await translateGoogle(text, target); }
     catch (e1) {
       try { return await translateMyMemory(text, target); }
@@ -622,31 +580,57 @@
   }
 
   // ============================================================
-  // AI 解答
+  // AI（解答 + 对话，分开）
   // ============================================================
-  let aiRequest = null;
-  let aiLastRun = null;
+  // 解答模式
+  let solveRequest = null;
+  let solveLastRun = null;
+  let solveBubble = null;
+  // 对话模式
+  let chatHistory = [];
+  let chatProblemInjected = false;
+  let chatRequest = null;
+  let chatLastRun = null;
+  let chatBubble = null;
+  // 共享
   let aiTicker = null;
+  let aiCurrentTab = 'solve';
 
   function stopTicker() { if (aiTicker) { clearInterval(aiTicker); aiTicker = null; } }
-  function startTicker() { stopTicker(); aiTicker = setInterval(() => { if (!aiLastRun || !aiLastRun.running) { stopTicker(); return; } refreshAiLive(); }, 500); }
-  function refreshAiLive() {
-    const live = document.querySelector('#yunoj-ai .yunoj-ai-live');
-    if (live && aiLastRun) live.innerHTML = buildLiveLine(aiLastRun);
+  function startTicker() {
+    stopTicker();
+    aiTicker = setInterval(() => {
+      const active = aiCurrentTab === 'solve' ? solveLastRun : chatLastRun;
+      const bubble = aiCurrentTab === 'solve' ? solveBubble : chatBubble;
+      if (!active || !active.running) { stopTicker(); return; }
+      if (bubble) {
+        const live = bubble.querySelector('.yunoj-ai-live');
+        if (live) live.innerHTML = buildLiveLine(active);
+      }
+    }, 500);
+  }
+  function refreshLive() {
+    const bubble = aiCurrentTab === 'solve' ? solveBubble : chatBubble;
+    const run = aiCurrentTab === 'solve' ? solveLastRun : chatLastRun;
+    if (bubble && run) {
+      const live = bubble.querySelector('.yunoj-ai-live');
+      if (live) live.innerHTML = buildLiveLine(run);
+    }
   }
 
-  function stopAI(silent) {
-    if (aiRequest && typeof aiRequest.abort === 'function') { try { aiRequest.abort(); } catch (e) {} }
-    aiRequest = null;
+  function stopAI(mode, silent) {
+    const req = mode === 'solve' ? solveRequest : chatRequest;
+    const run = mode === 'solve' ? solveLastRun : chatLastRun;
+    const bubble = mode === 'solve' ? solveBubble : chatBubble;
+    if (req && typeof req.abort === 'function') { try { req.abort(); } catch (e) {} }
+    if (mode === 'solve') solveRequest = null; else chatRequest = null;
     stopTicker();
-    if (aiLastRun && aiLastRun.running) {
-      aiLastRun.running = false; aiLastRun.done = true; aiLastRun.stopped = true; aiLastRun.phase = 'stopped';
-      if (!silent) {
-        const b = document.querySelector('#yunoj-ai .yunoj-ai-body');
-        if (b) b.innerHTML = buildAiHtml(aiLastRun);
-        const s = document.querySelector('#yunoj-ai .yunoj-ai-status');
-        if (s) s.textContent = '已停止';
-      }
+    if (run && run.running) {
+      run.running = false; run.done = true; run.stopped = true; run.phase = 'stopped';
+      if (!silent && bubble) updateAIBubble(bubble, run);
+      const s = document.querySelector('#yunoj-ai .yunoj-ai-status');
+      if (s) s.textContent = '已停止';
+      updateSendButton();
     }
   }
 
@@ -683,8 +667,8 @@
   function renderMarkdown(md) {
     if (!katexReady) {
       ensureKatex().then(() => {
-        const body = document.querySelector('#yunoj-ai .yunoj-ai-body');
-        if (body && body.dataset.raw && aiLastRun) body.innerHTML = buildAiHtml(aiLastRun);
+        if (solveBubble && solveLastRun) updateAIBubble(solveBubble, solveLastRun);
+        if (chatBubble && chatLastRun) updateAIBubble(chatBubble, chatLastRun);
       }).catch(() => {});
     }
     return _renderMarkdownSync(md);
@@ -743,10 +727,12 @@
     return '';
   }
 
-  function buildAiHtml(run) {
+  function buildBubbleContent(run, isLive) {
     if (!run) return '';
     let html = '';
-    html += '<div class="yunoj-ai-live' + (run.phase === 'error' ? ' yunoj-ai-live-err' : '') + (run.phase === 'done' ? ' yunoj-ai-live-ok' : '') + '">' + buildLiveLine(run) + '</div>';
+    if (isLive) {
+      html += '<div class="yunoj-ai-live' + (run.phase === 'error' ? ' yunoj-ai-live-err' : '') + (run.phase === 'done' ? ' yunoj-ai-live-ok' : '') + '">' + buildLiveLine(run) + '</div>';
+    }
     const hasContent = !!(run.fullText && run.fullText.length);
     if (run.thinkText && run.thinkText.length) {
       const openAttr = hasContent ? '' : ' open';
@@ -759,123 +745,77 @@
     if (hasContent) html += renderMarkdown(run.fullText);
     else if (run.error) html += '<div class="yunoj-ai-empty yunoj-ai-err">' + escapeHtml(run.error) + '</div>';
     else if (run.running) {
-      const hint = run.phase === 'connecting' ? '正在等待服务端响应…（如果长时间无响应，请检查 API 地址、Key 和网络）' : (run.thinkText && run.thinkText.length ? '正在思考…' : '正在生成…');
+      const hint = run.phase === 'connecting' ? '正在等待服务端响应…' : (run.thinkText && run.thinkText.length ? '正在思考…' : '正在生成…');
       html += '<div class="yunoj-ai-tip">' + hint + '</div>';
     } else if (run.stopped) html += '<div class="yunoj-ai-tip">已停止生成。已收到的内容不会丢失。</div>';
-    else if (run.done && !hasContent) html += '<div class="yunoj-ai-empty">模型没有返回正文内容（可能该模型只返回思考内容，或响应被截断）。</div>';
+    else if (run.done && !hasContent) html += '<div class="yunoj-ai-empty">模型没有返回正文内容。</div>';
     return html;
   }
 
-  function aiPanel() {
-    if ($('#yunoj-ai')) return;
-    const panel = el('div', { id: 'yunoj-ai' });
-    panel.style.display = 'none';
-    const header = el('div', { class: 'yunoj-ai-header' });
-    header.appendChild(el('span', { class: 'yunoj-ai-title' }, 'AI 解答'));
-    const status = el('span', { class: 'yunoj-ai-status' }, '');
-    header.appendChild(status);
-    const copyBtn = el('a', { class: 'yunoj-ai-btn', href: 'javascript:;', title: '复制回答' }, '📋');
-    copyBtn.onclick = () => { const body = panel.querySelector('.yunoj-ai-body'); if (body) copy((aiLastRun && aiLastRun.fullText) || body.textContent || '', () => { copyBtn.textContent = '✓'; setTimeout(() => copyBtn.textContent = '📋', 1000); }); };
-    header.appendChild(copyBtn);
-    const regenBtn = el('a', { class: 'yunoj-ai-btn', href: 'javascript:;', title: '重新生成（会重新计费）' }, '⟳');
-    regenBtn.onclick = () => { askAI(true); };
-    header.appendChild(regenBtn);
-    const stopBtn = el('a', { class: 'yunoj-ai-btn yunoj-ai-stop', href: 'javascript:;', title: '停止生成（已发出的请求可能仍会计费）' }, '⏹');
-    stopBtn.onclick = () => { stopAI(false); };
-    header.appendChild(stopBtn);
-    const cfgBtn = el('a', { class: 'yunoj-ai-btn', href: 'javascript:;', title: 'AI 设置' }, '⚙');
-    cfgBtn.onclick = () => { aiConfigPanel(); const c = $('#yunoj-ai-cfg'); if (c) c.style.display = 'block'; };
-    header.appendChild(cfgBtn);
-    const closeBtn = el('a', { class: 'yunoj-ai-btn', href: 'javascript:;', title: '关闭窗口（后台继续接收）' }, '✕');
-    closeBtn.onclick = () => { panel.style.display = 'none'; };
-    header.appendChild(closeBtn);
-    panel.appendChild(header);
-    const body = el('div', { class: 'yunoj-ai-body' });
-    body.innerHTML = '<div class="yunoj-ai-empty">点击工具栏「🤖解答」开始 AI 解答</div>';
-    panel.appendChild(body);
-    const footer = el('div', { class: 'yunoj-ai-footer' });
-    footer.appendChild(el('span', { class: 'yunoj-ai-model' }, ''));
-    panel.appendChild(footer);
-    document.body.appendChild(panel);
-    makeDraggable(panel, 'posAi');
-    body.addEventListener('click', e => {
-      const btn = e.target.closest('.yunoj-ai-code-copy');
-      if (!btn) return;
-      let pre = null;
-      const langBar = btn.closest('.yunoj-ai-code-lang');
-      if (langBar) {
-        let sib = langBar.nextElementSibling;
-        while (sib) {
-          if (sib.tagName === 'PRE' || (sib.classList && sib.classList.contains('yunoj-ai-pre'))) { pre = sib; break; }
-          sib = sib.nextElementSibling;
-        }
-      }
-      if (!pre) pre = btn.closest('.yunoj-ai-pre');
-      if (!pre) return;
-      const code = pre.querySelector('code');
-      if (!code) return;
-      copy(code.textContent || '', () => {
-        btn.textContent = '✓';
-        setTimeout(() => btn.textContent = '复制', 1000);
-      });
-    });
-    ensureKatex().catch(() => {});
+  function makeAIBubble(run) {
+    const bubble = el('div', { class: 'yunoj-ai-msg yunoj-ai-msg-assistant' });
+    const inner = el('div', { class: 'yunoj-ai-body' });
+    inner.innerHTML = buildBubbleContent(run, true);
+    bubble.appendChild(inner);
+    return bubble;
   }
 
-  async function askAI(force) {
-    const panel = $('#yunoj-ai'); if (!panel) return;
-    const body = panel.querySelector('.yunoj-ai-body');
-    const status = panel.querySelector('.yunoj-ai-status');
-    const modelInfo = panel.querySelector('.yunoj-ai-model');
-    panel.style.display = 'flex';
+  function updateAIBubble(bubble, run) {
+    if (!bubble) return;
+    const inner = bubble.querySelector('.yunoj-ai-body');
+    if (inner) inner.innerHTML = buildBubbleContent(run, true);
+    else bubble.innerHTML = buildBubbleContent(run, true);
+  }
 
+  function scrollHistory() {
+    const sel = aiCurrentTab === 'solve' ? '.yunoj-ai-history-solve' : '.yunoj-ai-history-chat';
+    const hist = document.querySelector('#yunoj-ai ' + sel);
+    if (hist) hist.scrollTop = hist.scrollHeight;
+  }
+
+  function appendSystemTip(text) {
+    const sel = aiCurrentTab === 'solve' ? '.yunoj-ai-history-solve' : '.yunoj-ai-history-chat';
+    const hist = document.querySelector('#yunoj-ai ' + sel);
+    if (!hist) return;
+    const tip = el('div', { class: 'yunoj-ai-system-tip' }, text);
+    hist.appendChild(tip);
+    scrollHistory();
+  }
+
+  function updateSendButton() {
+    const panel = $('#yunoj-ai');
+    if (!panel) return;
+    const sendBtn = panel.querySelector('.yunoj-ai-send');
+    const textarea = panel.querySelector('.yunoj-ai-input');
+    if (!sendBtn) return;
+    const running = !!(chatLastRun && chatLastRun.running);
+    sendBtn.disabled = running || !(textarea && textarea.value.trim());
+    sendBtn.textContent = running ? '生成中…' : '发送';
+  }
+
+  function getSystemPrompt() {
     const cur = getActiveAIProfile() || {};
-    const base = (cur.base || '').trim().replace(/\/+$/, '');
-    const key = (cur.key || '').trim();
-    const model = (cur.model || 'deepseek-chat').trim();
-    const profileLabel = (cur.name ? cur.name + ' · ' : '') + model;
-    modelInfo.textContent = profileLabel;
+    return (cur.system || '').trim() || '你是一名信息学竞赛教练。';
+  }
 
-    if (!base) { body.innerHTML = '<div class="yunoj-ai-live yunoj-ai-live-err">❌ 未配置 API 地址（点 ⚙ 打开 AI 设置）</div>'; return; }
-    if (!key) { body.innerHTML = '<div class="yunoj-ai-live yunoj-ai-live-err">❌ 未配置 API Key（点 ⚙ 打开 AI 设置）</div>'; return; }
-
-    const statement = extractStatement();
-    if (!statement || statement.length < 20) { body.innerHTML = '<div class="yunoj-ai-live yunoj-ai-live-err">❌ 未识别到题面</div>'; return; }
-
-    const sysPrompt = (cur.system || '').trim() || '你是一名信息学竞赛教练。';
-    const hash = (statement.slice(0, 300)) + '|' + base + '|' + model + '|' + sysPrompt;
-
-    if (!force && aiLastRun && aiLastRun.hash === hash) {
-      body.innerHTML = buildAiHtml(aiLastRun);
-      status.textContent = aiLastRun.running ? '进行中…' : (aiLastRun.done ? (aiLastRun.stopped ? '已停止' : '完成') : '');
-      if (aiLastRun.running) startTicker();
-      return;
+  function trimChatHistory() {
+    if (chatHistory.length > 13) {
+      chatHistory = [chatHistory[0], ...chatHistory.slice(-12)];
     }
+  }
 
-    if (aiRequest && typeof aiRequest.abort === 'function') { try { aiRequest.abort(); } catch (e) {} }
-    aiRequest = null;
-    stopTicker();
-
-    const userPrompt = `题目：${OJ.getTitle() || '(未命名)'}\n\n${statement}`;
-    let hostLabel = base;
-    try { hostLabel = new URL(base).hostname; } catch (e) {}
-
-    aiLastRun = {
-      hash, fullText: '', thinkText: '', running: true, done: false, stopped: false, error: null,
-      modelLabel: profileLabel, hostLabel, phase: 'connecting',
-      startedAt: Date.now(), firstByteAt: null, finishedAt: null, bytes: 0,
-    };
-    body.innerHTML = buildAiHtml(aiLastRun);
-    status.textContent = '连接中…';
-    startTicker();
+  // ---------- 通用流式请求 ----------
+  function doStreamingRequest(ctx) {
+    const { mode, base, key, model, messages, run, bubble, onFinish } = ctx;
+    const myRun = run;
+    const myBubble = bubble;
+    const status = document.querySelector('#yunoj-ai .yunoj-ai-status');
 
     let lastLen = 0;
     let buffer = '';
-    const myRun = aiLastRun;
 
     const rerender = () => {
-      const b = document.querySelector('#yunoj-ai .yunoj-ai-body');
-      if (b && aiLastRun === myRun) { b.dataset.raw = aiLastRun.fullText; b.innerHTML = buildAiHtml(aiLastRun); }
+      if (myBubble && myBubble.parentNode) updateAIBubble(myBubble, myRun);
     };
 
     const parseSSE = (text, isFinal) => {
@@ -894,30 +834,30 @@
           const d = j.choices && j.choices[0] && j.choices[0].delta;
           if (!d) continue;
           let changed = false;
-          if (d.reasoning_content) { aiLastRun.thinkText += d.reasoning_content; changed = true; }
-          if (d.content) { aiLastRun.fullText += d.content; changed = true; }
+          if (d.reasoning_content) { myRun.thinkText += d.reasoning_content; changed = true; }
+          if (d.content) { myRun.fullText += d.content; changed = true; }
           if (changed) rerender();
         } catch (e) {}
       }
     };
 
-    const url = base + '/chat/completions';
-    const reqData = JSON.stringify({
-      model: model,
-      messages: [{ role: 'system', content: sysPrompt }, { role: 'user', content: userPrompt }],
-      stream: true,
-    });
-
     const onFirstData = () => {
-      if (myRun.phase === 'connecting') { myRun.phase = 'streaming'; myRun.firstByteAt = Date.now(); refreshAiLive(); }
+      if (myRun.phase === 'connecting') {
+        myRun.phase = 'streaming';
+        myRun.firstByteAt = Date.now();
+        refreshLive();
+      }
     };
 
-    aiRequest = GM_xmlhttpRequest({
-      method: 'POST', url: url,
+    const url = base + '/chat/completions';
+    const reqData = JSON.stringify({ model, messages, stream: true });
+
+    const req = GM_xmlhttpRequest({
+      method: 'POST', url,
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key, 'Accept': 'text/event-stream' },
       data: reqData, timeout: 180000,
       onprogress: res => {
-        if (aiLastRun !== myRun || !myRun.running) return;
+        if (!myRun.running) return;
         const full = res.responseText || '';
         if (full.length <= lastLen) return;
         const chunk = full.substring(lastLen);
@@ -925,23 +865,27 @@
         onFirstData();
         myRun.bytes = full.length;
         parseSSE(chunk, false);
-        refreshAiLive();
+        refreshLive();
       },
       onload: res => {
-        if (aiLastRun !== myRun) return;
         if (!myRun.running) return;
         if (res.responseText) parseSSE(res.responseText, true);
         myRun.bytes = (res.responseText || '').length || myRun.bytes;
         myRun.finishedAt = Date.now();
         stopTicker();
+
         if (res.status !== 200) {
           let errMsg = 'HTTP ' + res.status;
           try { const j = JSON.parse(res.responseText); if (j.error && j.error.message) errMsg = j.error.message; }
           catch (e) { errMsg += ' — ' + (res.responseText || '').substring(0, 200); }
           myRun.error = errMsg; myRun.phase = 'error'; myRun.running = false; myRun.done = true;
-          aiRequest = null; rerender(); status.textContent = '失败';
+          rerender();
+          if (status) status.textContent = '失败';
+          if (onFinish) onFinish(false);
+          updateSendButton();
           return;
         }
+
         if (!myRun.fullText) {
           try {
             const j = JSON.parse(res.responseText);
@@ -952,32 +896,458 @@
             }
           } catch (e) {}
         }
-        myRun.running = false; myRun.done = true; aiRequest = null;
+
+        myRun.running = false; myRun.done = true;
+
         if (!myRun.fullText && !myRun.thinkText) {
-          myRun.phase = 'error'; myRun.error = '模型没有返回内容（可能被截断、该模型不支持流式，或响应格式异常）';
-          rerender(); status.textContent = '失败';
+          myRun.phase = 'error';
+          myRun.error = '模型没有返回内容（可能被截断、该模型不支持流式，或响应格式异常）';
+          rerender();
+          if (status) status.textContent = '失败';
+          if (onFinish) onFinish(false);
+          updateSendButton();
           return;
         }
-        myRun.phase = 'done'; rerender(); status.textContent = '完成';
+
+        myRun.phase = 'done';
+        rerender();
+        if (status) status.textContent = '完成';
+        if (onFinish) onFinish(true);
+        updateSendButton();
       },
       onerror: () => {
-        if (aiLastRun !== myRun || !myRun.running) return;
+        if (!myRun.running) return;
         stopTicker();
-        myRun.error = '网络错误：无法连接到 ' + hostLabel + '（可能是 CORS、@connect 未配置，或网络不通）';
+        myRun.error = '网络错误：无法连接到 ' + myRun.hostLabel + '（可能是 CORS、@connect 未配置，或网络不通）';
         myRun.phase = 'error'; myRun.running = false; myRun.done = true; myRun.finishedAt = Date.now();
-        aiRequest = null; rerender(); status.textContent = '失败';
+        rerender();
+        if (status) status.textContent = '失败';
+        if (onFinish) onFinish(false);
+        updateSendButton();
       },
       ontimeout: () => {
-        if (aiLastRun !== myRun || !myRun.running) return;
+        if (!myRun.running) return;
         stopTicker();
-        myRun.error = '请求超时（180 秒无响应）：' + hostLabel;
+        myRun.error = '请求超时（180 秒无响应）：' + myRun.hostLabel;
         myRun.phase = 'error'; myRun.running = false; myRun.done = true; myRun.finishedAt = Date.now();
-        aiRequest = null; rerender(); status.textContent = '失败';
+        rerender();
+        if (status) status.textContent = '失败';
+        if (onFinish) onFinish(false);
+        updateSendButton();
+      },
+    });
+
+    if (mode === 'solve') solveRequest = req; else chatRequest = req;
+  }
+
+  // ============ 解答模式 ============
+  async function startSolve(force) {
+    const panel = $('#yunoj-ai');
+    if (!panel) return;
+
+    // 切到解答 tab
+    switchToTab(panel, 'solve');
+    panel.style.display = 'flex';
+
+    const status = panel.querySelector('.yunoj-ai-status');
+    const modelInfo = panel.querySelector('.yunoj-ai-model');
+
+    const cur = getActiveAIProfile() || {};
+    const base = (cur.base || '').trim().replace(/\/+$/, '');
+    const key = (cur.key || '').trim();
+    const model = (cur.model || 'deepseek-chat').trim();
+    const profileLabel = (cur.name ? cur.name + ' · ' : '') + model;
+    if (modelInfo) modelInfo.textContent = profileLabel;
+
+    const hist = panel.querySelector('.yunoj-ai-history-solve');
+    if (!base) { if (hist) hist.innerHTML = ''; appendSystemTip('❌ 未配置 API 地址（点 ⚙ 打开 AI 设置）'); return; }
+    if (!key) { if (hist) hist.innerHTML = ''; appendSystemTip('❌ 未配置 API Key（点 ⚙ 打开 AI 设置）'); return; }
+
+    const statement = extractStatement();
+    if (!statement || statement.length < 20) { if (hist) hist.innerHTML = ''; appendSystemTip('❌ 未识别到题面'); return; }
+
+    const sysPrompt = getSystemPrompt();
+    const userPrompt = `题目：${OJ.getTitle() || '(未命名)'}\n\n${statement}\n\n请给出：1) 思路分析；2) C++14 完整代码；3) 复杂度分析。`;
+
+    const hash = statement.slice(0, 300) + '|' + base + '|' + model + '|' + sysPrompt;
+
+    // 非强制且 hash 相同 → 复用已有结果
+    if (!force && solveLastRun && solveLastRun.hash === hash) {
+      if (hist) {
+        hist.innerHTML = '';
+        if (solveLastRun.fullText || solveLastRun.thinkText) {
+          const bubble = makeAIBubble(solveLastRun);
+          const inner = bubble.querySelector('.yunoj-ai-body');
+          if (inner) inner.innerHTML = buildBubbleContent(solveLastRun, false);
+          hist.appendChild(bubble);
+        }
+      }
+      if (status) status.textContent = solveLastRun.running ? '进行中…' : (solveLastRun.done ? (solveLastRun.stopped ? '已停止' : '完成') : '');
+      if (solveLastRun.running) startTicker();
+      return;
+    }
+
+    // 中止旧请求
+    if (solveRequest && typeof solveRequest.abort === 'function') { try { solveRequest.abort(); } catch (e) {} }
+    solveRequest = null;
+    stopTicker();
+
+    // 清空 UI 并渲染用户提示
+    if (hist) hist.innerHTML = '';
+    const userBubble = el('div', { class: 'yunoj-ai-msg yunoj-ai-msg-user' });
+    userBubble.textContent = '请给出这道题的完整解答。';
+    if (hist) { hist.appendChild(userBubble); hist.scrollTop = hist.scrollHeight; }
+
+    let hostLabel = base;
+    try { hostLabel = new URL(base).hostname; } catch (e) {}
+
+    const run = {
+      hash, fullText: '', thinkText: '', running: true, done: false, stopped: false, error: null,
+      modelLabel: profileLabel, hostLabel, phase: 'connecting',
+      startedAt: Date.now(), firstByteAt: null, finishedAt: null, bytes: 0,
+    };
+    solveLastRun = run;
+
+    const bubble = makeAIBubble(run);
+    if (hist) { hist.appendChild(bubble); hist.scrollTop = hist.scrollHeight; }
+    solveBubble = bubble;
+
+    if (status) status.textContent = '连接中…';
+    startTicker();
+
+    const messages = [
+      { role: 'system', content: sysPrompt },
+      { role: 'user', content: userPrompt },
+    ];
+
+    doStreamingRequest({
+      mode: 'solve',
+      base, key, model, messages,
+      run, bubble,
+      onFinish: () => { solveRequest = null; },
+    });
+  }
+
+  // ============ 对话模式 ============
+  async function sendChatMessage(userText, opts) {
+    opts = opts || {};
+    const panel = $('#yunoj-ai');
+    if (!panel) return;
+
+    switchToTab(panel, 'chat');
+    panel.style.display = 'flex';
+
+    const status = panel.querySelector('.yunoj-ai-status');
+    const modelInfo = panel.querySelector('.yunoj-ai-model');
+
+    const cur = getActiveAIProfile() || {};
+    const base = (cur.base || '').trim().replace(/\/+$/, '');
+    const key = (cur.key || '').trim();
+    const model = (cur.model || 'deepseek-chat').trim();
+    const profileLabel = (cur.name ? cur.name + ' · ' : '') + model;
+    if (modelInfo) modelInfo.textContent = profileLabel;
+
+    if (!base) { appendSystemTip('❌ 未配置 API 地址（点 ⚙ 打开 AI 设置）'); updateSendButton(); return; }
+    if (!key) { appendSystemTip('❌ 未配置 API Key（点 ⚙ 打开 AI 设置）'); updateSendButton(); return; }
+
+    // 初始化
+    if (chatHistory.length === 0) {
+      chatHistory = [{ role: 'system', content: getSystemPrompt() }];
+    }
+
+    // 首次对话自动带题面
+    const isFirst = chatHistory.length <= 1 && !chatProblemInjected;
+    const shouldInject = opts.injectProblem || isFirst;
+
+    let finalContent = userText;
+    if (shouldInject && !chatProblemInjected) {
+      const statement = extractStatement();
+      if (statement && statement.length >= 20) {
+        const title = OJ.getTitle() || '(未命名)';
+        finalContent = `题目：${title}\n\n${statement}\n\n---\n\n我的问题：${userText}`;
+        chatProblemInjected = true;
+      }
+    }
+
+    const hist = panel.querySelector('.yunoj-ai-history-chat');
+    const emptyTip = hist && hist.querySelector('.yunoj-ai-empty');
+    if (emptyTip) emptyTip.remove();
+
+    // 用户气泡
+    if (hist) {
+      const b = el('div', { class: 'yunoj-ai-msg yunoj-ai-msg-user' });
+      b.textContent = userText;
+      hist.appendChild(b);
+      hist.scrollTop = hist.scrollHeight;
+    }
+
+    chatHistory.push({ role: 'user', content: finalContent });
+    trimChatHistory();
+
+    // 中止旧请求
+    if (chatRequest && typeof chatRequest.abort === 'function') { try { chatRequest.abort(); } catch (e) {} }
+    chatRequest = null;
+    stopTicker();
+
+    let hostLabel = base;
+    try { hostLabel = new URL(base).hostname; } catch (e) {}
+
+    const run = {
+      hash: null, fullText: '', thinkText: '', running: true, done: false, stopped: false, error: null,
+      modelLabel: profileLabel, hostLabel, phase: 'connecting',
+      startedAt: Date.now(), firstByteAt: null, finishedAt: null, bytes: 0,
+    };
+    chatLastRun = run;
+
+    const bubble = makeAIBubble(run);
+    if (hist) { hist.appendChild(bubble); hist.scrollTop = hist.scrollHeight; }
+    chatBubble = bubble;
+
+    if (status) status.textContent = '连接中…';
+    updateSendButton();
+    startTicker();
+
+    doStreamingRequest({
+      mode: 'chat',
+      base, key, model,
+      messages: chatHistory,
+      run, bubble,
+      onFinish: (ok) => {
+        chatRequest = null;
+        if (ok && run.fullText) {
+          chatHistory.push({ role: 'assistant', content: run.fullText });
+          trimChatHistory();
+        }
       },
     });
   }
 
-  // ============ AI 设置（多套配置） ============
+  async function regenerateChat() {
+    if (chatHistory.length < 2) return;
+    // 移除最后 assistant
+    if (chatHistory[chatHistory.length - 1].role === 'assistant') {
+      chatHistory.pop();
+    }
+    // 移除最后一条 AI 气泡
+    const hist = document.querySelector('#yunoj-ai .yunoj-ai-history-chat');
+    if (hist) {
+      const ais = hist.querySelectorAll('.yunoj-ai-msg-assistant');
+      if (ais.length > 0) ais[ais.length - 1].remove();
+    }
+
+    const panel = $('#yunoj-ai');
+    if (!panel) return;
+    const status = panel.querySelector('.yunoj-ai-status');
+
+    const cur = getActiveAIProfile() || {};
+    const base = (cur.base || '').trim().replace(/\/+$/, '');
+    const key = (cur.key || '').trim();
+    const model = (cur.model || 'deepseek-chat').trim();
+    if (!base || !key) { appendSystemTip('❌ 未配置 API'); return; }
+
+    if (chatRequest && typeof chatRequest.abort === 'function') { try { chatRequest.abort(); } catch (e) {} }
+    chatRequest = null;
+    stopTicker();
+
+    let hostLabel = base;
+    try { hostLabel = new URL(base).hostname; } catch (e) {}
+
+    const run = {
+      hash: null, fullText: '', thinkText: '', running: true, done: false, stopped: false, error: null,
+      modelLabel: (cur.name ? cur.name + ' · ' : '') + model, hostLabel, phase: 'connecting',
+      startedAt: Date.now(), firstByteAt: null, finishedAt: null, bytes: 0,
+    };
+    chatLastRun = run;
+
+    const bubble = makeAIBubble(run);
+    if (hist) { hist.appendChild(bubble); hist.scrollTop = hist.scrollHeight; }
+    chatBubble = bubble;
+    updateSendButton();
+    startTicker();
+
+    doStreamingRequest({
+      mode: 'chat',
+      base, key, model,
+      messages: chatHistory,
+      run, bubble,
+      onFinish: (ok) => {
+        chatRequest = null;
+        if (ok && run.fullText) {
+          chatHistory.push({ role: 'assistant', content: run.fullText });
+          trimChatHistory();
+        }
+      },
+    });
+  }
+
+  function switchToTab(panel, mode) {
+    aiCurrentTab = mode;
+    const tabSolve = panel.querySelector('[data-tab="solve"]');
+    const tabChat = panel.querySelector('[data-tab="chat"]');
+    const solveContent = panel.querySelector('.yunoj-ai-content-solve');
+    const chatContent = panel.querySelector('.yunoj-ai-content-chat');
+    if (tabSolve) tabSolve.classList.toggle('yunoj-ai-tab-active', mode === 'solve');
+    if (tabChat) tabChat.classList.toggle('yunoj-ai-tab-active', mode === 'chat');
+    if (solveContent) solveContent.style.display = mode === 'solve' ? 'flex' : 'none';
+    if (chatContent) chatContent.style.display = mode === 'chat' ? 'flex' : 'none';
+    if (mode === 'chat') {
+      const ta = panel.querySelector('.yunoj-ai-input');
+      if (ta) setTimeout(() => ta.focus(), 30);
+    }
+    updateSendButton();
+  }
+
+  function resetChatSession() {
+    if (chatRequest && typeof chatRequest.abort === 'function') { try { chatRequest.abort(); } catch (e) {} }
+    chatRequest = null;
+    chatHistory = [];
+    chatProblemInjected = false;
+    chatLastRun = null;
+    chatBubble = null;
+    stopTicker();
+    const hist = document.querySelector('#yunoj-ai .yunoj-ai-history-chat');
+    if (hist) hist.innerHTML = '<div class="yunoj-ai-empty">在下方输入你想问的问题（例如："这道题的思路是什么？"）</div>';
+    const s = document.querySelector('#yunoj-ai .yunoj-ai-status');
+    if (s) s.textContent = '';
+    updateSendButton();
+  }
+
+  // ---------- AI 面板 ----------
+  function aiPanel() {
+    if ($('#yunoj-ai')) return;
+    const panel = el('div', { id: 'yunoj-ai' });
+    panel.style.display = 'none';
+
+    // Header
+    const header = el('div', { class: 'yunoj-ai-header' });
+    header.appendChild(el('span', { class: 'yunoj-ai-title' }, 'AI 助手'));
+    const status = el('span', { class: 'yunoj-ai-status' }, '');
+    header.appendChild(status);
+
+    const copyBtn = el('a', { class: 'yunoj-ai-btn', href: 'javascript:;', title: '复制最近一条回答' }, '📋');
+    copyBtn.onclick = () => {
+      const run = aiCurrentTab === 'solve' ? solveLastRun : chatLastRun;
+      const t = (run && run.fullText) || '';
+      if (!t) return;
+      copy(t, () => { copyBtn.textContent = '✓'; setTimeout(() => copyBtn.textContent = '📋', 1000); });
+    };
+    header.appendChild(copyBtn);
+
+    const regenBtn = el('a', { class: 'yunoj-ai-btn', href: 'javascript:;', title: '重新生成（会重新计费）' }, '⟳');
+    regenBtn.onclick = () => {
+      if (aiCurrentTab === 'solve') startSolve(true);
+      else regenerateChat();
+    };
+    header.appendChild(regenBtn);
+
+    const stopBtn = el('a', { class: 'yunoj-ai-btn yunoj-ai-stop', href: 'javascript:;', title: '停止生成' }, '⏹');
+    stopBtn.onclick = () => { stopAI(aiCurrentTab, false); };
+    header.appendChild(stopBtn);
+
+    const cfgBtn = el('a', { class: 'yunoj-ai-btn', href: 'javascript:;', title: 'AI 设置' }, '⚙');
+    cfgBtn.onclick = () => { aiConfigPanel(); const c = $('#yunoj-ai-cfg'); if (c) c.style.display = 'block'; };
+    header.appendChild(cfgBtn);
+
+    const closeBtn = el('a', { class: 'yunoj-ai-btn', href: 'javascript:;', title: '关闭窗口（后台继续接收）' }, '✕');
+    closeBtn.onclick = () => { panel.style.display = 'none'; };
+    header.appendChild(closeBtn);
+    panel.appendChild(header);
+
+    // Tabs
+    const tabs = el('div', { class: 'yunoj-ai-tabs' });
+    const tabSolve = el('a', { class: 'yunoj-ai-tab yunoj-ai-tab-active', href: 'javascript:;', 'data-tab': 'solve' }, '🤖 解答');
+    const tabChat = el('a', { class: 'yunoj-ai-tab', href: 'javascript:;', 'data-tab': 'chat' }, '💬 对话');
+    tabs.appendChild(tabSolve);
+    tabs.appendChild(tabChat);
+    panel.appendChild(tabs);
+    tabSolve.onclick = () => switchToTab(panel, 'solve');
+    tabChat.onclick = () => switchToTab(panel, 'chat');
+
+    // Solve content
+    const solveContent = el('div', { class: 'yunoj-ai-content yunoj-ai-content-solve' });
+    const solveHist = el('div', { class: 'yunoj-ai-history yunoj-ai-history-solve' });
+    solveHist.innerHTML = '<div class="yunoj-ai-empty">点击工具栏「🤖解答」开始解答</div>';
+    solveContent.appendChild(solveHist);
+    panel.appendChild(solveContent);
+
+    // Chat content
+    const chatContent = el('div', { class: 'yunoj-ai-content yunoj-ai-content-chat' });
+    chatContent.style.display = 'none';
+    const chatHist = el('div', { class: 'yunoj-ai-history yunoj-ai-history-chat' });
+    chatHist.innerHTML = '<div class="yunoj-ai-empty">在下方输入你想问的问题（例如："这道题的思路是什么？"）</div>';
+    chatContent.appendChild(chatHist);
+
+    const inputArea = el('div', { class: 'yunoj-ai-input-area' });
+    const newChatBtn = el('button', { class: 'yunoj-ai-newchat', type: 'button', title: '开始新对话（清空上下文）' }, '＋');
+    newChatBtn.onclick = () => resetChatSession();
+    const textarea = el('textarea', { class: 'yunoj-ai-input', placeholder: '继续追问…（Enter 发送，Shift+Enter 换行）' });
+    textarea.rows = 1;
+    const sendBtn = el('button', { class: 'yunoj-ai-send', type: 'button' }, '发送');
+    sendBtn.disabled = true;
+    inputArea.appendChild(newChatBtn);
+    inputArea.appendChild(textarea);
+    inputArea.appendChild(sendBtn);
+    chatContent.appendChild(inputArea);
+    panel.appendChild(chatContent);
+
+    // Footer
+    const footer = el('div', { class: 'yunoj-ai-footer' });
+    footer.appendChild(el('span', { class: 'yunoj-ai-model' }, ''));
+    panel.appendChild(footer);
+
+    document.body.appendChild(panel);
+    makeDraggable(panel, 'posAi');
+
+    // 输入事件
+    const doSend = () => {
+      const text = textarea.value.trim();
+      if (!text || sendBtn.disabled) return;
+      textarea.value = '';
+      textarea.style.height = 'auto';
+      sendBtn.disabled = true;
+      sendChatMessage(text);
+    };
+    textarea.addEventListener('input', () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+      sendBtn.disabled = !textarea.value.trim() || !!(chatLastRun && chatLastRun.running);
+    });
+    textarea.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
+    });
+    sendBtn.addEventListener('click', doSend);
+
+    // 代码复制事件委托
+    const bindCopy = (root) => {
+      root.addEventListener('click', e => {
+        const btn = e.target.closest('.yunoj-ai-code-copy');
+        if (!btn) return;
+        let pre = null;
+        const langBar = btn.closest('.yunoj-ai-code-lang');
+        if (langBar) {
+          let sib = langBar.nextElementSibling;
+          while (sib) {
+            if (sib.tagName === 'PRE' || (sib.classList && sib.classList.contains('yunoj-ai-pre'))) { pre = sib; break; }
+            sib = sib.nextElementSibling;
+          }
+        }
+        if (!pre) pre = btn.closest('.yunoj-ai-pre');
+        if (!pre) return;
+        const code = pre.querySelector('code');
+        if (!code) return;
+        copy(code.textContent || '', () => {
+          btn.textContent = '✓';
+          setTimeout(() => btn.textContent = '复制', 1000);
+        });
+      });
+    };
+    bindCopy(solveHist);
+    bindCopy(chatHist);
+
+    ensureKatex().catch(() => {});
+  }
+
+  // ============ AI 设置 ============
   function aiConfigPanel() {
     if ($('#yunoj-ai-cfg')) return;
     const panel = el('div', { id: 'yunoj-ai-cfg' });
@@ -1009,7 +1379,7 @@
     panel.appendChild(mkField('API Key', 'key', 'sk-...', true));
     panel.appendChild(mkField('模型', 'model', 'deepseek-chat'));
     panel.appendChild(mkField('系统提示词', 'system', '你是一名信息学竞赛教练…'));
-    panel.appendChild(el('div', { class: 'yunoj-ai-cfg-tip' }, '支持任何 OpenAI 兼容接口，可保存多套配置并用顶部下拉切换。修改 API 地址后需要把域名加到脚本头部的 @connect 里。GLM-5.3 / DeepSeek-R1 等推理模型的思考过程会自动显示在「💭 思考过程」折叠块里。'));
+    panel.appendChild(el('div', { class: 'yunoj-ai-cfg-tip' }, '支持任何 OpenAI 兼容接口，可保存多套配置并用顶部下拉切换。修改 API 地址后需要把域名加到脚本头部的 @connect 里。'));
 
     const actions = el('div', { class: 'yunoj-ai-cfg-actions' });
     actions.appendChild(hint);
@@ -1089,7 +1459,6 @@
     header.appendChild(closeBtn);
     panel.appendChild(header);
 
-    // 选择提供商
     const providerWrap = el('div', { class: 'yunoj-ai-cfg-field' });
     providerWrap.appendChild(el('label', { class: 'yunoj-ai-cfg-label' }, '翻译引擎'));
     const sel = el('select', { class: 'yunoj-ai-cfg-input' });
@@ -1100,7 +1469,6 @@
     providerWrap.appendChild(sel);
     panel.appendChild(providerWrap);
 
-    // 自定义配置区域
     const customFields = el('div', { class: 'yunoj-trans-custom-fields' });
     const mkArea = (label, key, placeholder, rows) => {
       const wrap = el('div', { class: 'yunoj-ai-cfg-field' });
@@ -1125,7 +1493,7 @@
     customFields.appendChild(mkArea('请求体模板 (POST)', 'customTransBody', '{"text":"{{text}}"}', 4));
     customFields.appendChild(mkArea('响应提取路径 (如 choices[0].message.content)', 'customTransExtract', 'choices[0].message.content', 2));
 
-    customFields.appendChild(el('div', { class: 'yunoj-ai-cfg-tip' }, '占位符说明：{{text}} 会被替换为待翻译内容，{{target}} 替换为目标语言（如 zh-CN 或 en）。提取路径支持点号提取 JSON，例如 data.translations[0].text。若留空则原样返回响应文本。'));
+    customFields.appendChild(el('div', { class: 'yunoj-ai-cfg-tip' }, '占位符说明：{{text}} 会被替换为待翻译内容，{{target}} 替换为目标语言（如 zh-CN 或 en）。'));
 
     panel.appendChild(customFields);
 
@@ -1166,7 +1534,7 @@
 
     writeForm();
     document.body.appendChild(panel);
-    makeDraggable(panel, 'posAiCfg'); // 借用一个位置保存
+    makeDraggable(panel, 'posAiCfg');
   }
 
   // ============================================================
@@ -1330,15 +1698,9 @@
     });
     panel.appendChild(sourceRow);
 
-    // 智谱搜索引擎选择（仅在选中「智谱联网」时显示）
     const engineRow = el('div', { class: 'yunoj-search-engine-row' });
     engineRow.appendChild(el('span', { class: 'yunoj-search-src-label' }, '引擎：'));
-    const engines = [
-      ['search_std', '标准'],
-      ['search_pro', '进阶'],
-      ['search_pro_quark', '夸克'],
-      ['search_pro_sogou', '搜狗'],
-    ];
+    const engines = [['search_std', '标准'], ['search_pro', '进阶'], ['search_pro_quark', '夸克'], ['search_pro_sogou', '搜狗']];
     const engineSel = el('select', { class: 'yunoj-search-engine' });
     engines.forEach(([v, t]) => { const opt = document.createElement('option'); opt.value = v; opt.textContent = t; if ((get('zhipuEngine') || 'search_pro') === v) opt.selected = true; engineSel.appendChild(opt); });
     engineSel.onchange = () => { set('zhipuEngine', engineSel.value); const kw = panel.__kwInput && panel.__kwInput.value.trim(); if (kw && (get('searchSource') === 'zhipu')) doSearch(kw); };
@@ -1376,7 +1738,6 @@
     const title = OJ.getTitle();
     const code = OJ.getCode();
     let kw = (title || code || '').trim();
-    // 只有 XYDOJ 才用题面补充关键词；洛谷直接用标题/题号，避免把整页描述带进去
     if (OJ.key === 'xinyoudui.com' && !title) {
       const desc = extractDescription();
       if (desc && desc.length > 20) kw = desc.substring(0, 200);
@@ -1399,9 +1760,27 @@
     if (get('search')) { const sBtn = el('a', { class: 'yunoj-a yunoj-search-toggle', href: 'javascript:;' }, '🔍搜索'); sBtn.onclick = () => { const p = $('#yunoj-search'); if (!p) return; if (p.style.display === 'none') { const sel = getSelectedText(); const kw = sel || buildSearchKeyword(); const kwInput = p.__kwInput; if (kwInput) kwInput.value = kw; p.style.display = 'block'; if (kw) doSearch(kw); if (kwInput) setTimeout(() => kwInput.focus(), 30); } else p.style.display = 'none'; }; bar.appendChild(sBtn); }
     if (get('translate')) { const tBtn = el('a', { class: 'yunoj-a yunoj-trans-toggle', href: 'javascript:;' }, '🌐翻译'); tBtn.onclick = () => { const p = $('#yunoj-trans'); if (!p) return; if (p.style.display === 'none') { doTranslate(); } else { if (translateAbort) translateAbort(); p.style.display = 'none'; } }; bar.appendChild(tBtn); }
     if (get('ai')) {
-      const aiBtn = el('a', { class: 'yunoj-a yunoj-ai-toggle', href: 'javascript:;' }, '🤖解答');
-      aiBtn.onclick = () => { const p = $('#yunoj-ai'); if (!p) return; if (p.style.display === 'none' || p.style.display === '') { askAI(false); } else { p.style.display = 'none'; } };
-      bar.appendChild(aiBtn);
+      const solveBtn = el('a', { class: 'yunoj-a yunoj-ai-solve-toggle', href: 'javascript:;' }, '🤖解答');
+      solveBtn.onclick = () => {
+        const p = $('#yunoj-ai');
+        if (!p) return;
+        const visible = p.style.display !== 'none' && p.style.display !== '';
+        if (!visible) { p.style.display = 'flex'; startSolve(false); }
+        else if (aiCurrentTab !== 'solve') { startSolve(false); }
+        else { p.style.display = 'none'; }
+      };
+      bar.appendChild(solveBtn);
+
+      const chatBtn = el('a', { class: 'yunoj-a yunoj-ai-chat-toggle', href: 'javascript:;' }, '💬对话');
+      chatBtn.onclick = () => {
+        const p = $('#yunoj-ai');
+        if (!p) return;
+        const visible = p.style.display !== 'none' && p.style.display !== '';
+        if (!visible) { p.style.display = 'flex'; switchToTab(p, 'chat'); }
+        else if (aiCurrentTab !== 'chat') { switchToTab(p, 'chat'); }
+        else { p.style.display = 'none'; }
+      };
+      bar.appendChild(chatBtn);
     }
     if (get('statement')) { const stBtn = el('a', { class: 'yunoj-a yunoj-statement-btn', href: 'javascript:;' }, '复制题面'); stBtn.onclick = () => { const text = extractStatement(); if (!text) { stBtn.textContent = '未识别'; setTimeout(() => stBtn.textContent = '复制题面', 1200); return; } copy(text, () => { stBtn.textContent = `已复制(${text.length}字)`; setTimeout(() => stBtn.textContent = '复制题面', 1500); }); }; bar.appendChild(stBtn); }
     if (code) { const codeBtn = el('a', { class: 'yunoj-a yunoj-copy-pid', href: 'javascript:;' }, `#${code}`); codeBtn.onclick = () => copy(code, () => { codeBtn.textContent = '已复制'; setTimeout(() => codeBtn.textContent = `#${code}`, 1000); }); bar.appendChild(codeBtn); }
@@ -1485,7 +1864,7 @@
     const fab = el('button', { id: 'yunoj-fab', type: 'button', title: 'Yun OJ Better 设置（可拖动）' }, '⚙');
     const p = el('div', { id: 'yunoj-panel' }); p.style.display = 'none';
     const mk = (k, label) => { const l = el('label'); const i = el('input', { type: 'checkbox' }); i.checked = get(k); i.dataset.k = k; l.appendChild(i); l.appendChild(el('span', null, label)); return l; };
-    const ck = [mk('origin', '原题识别'), mk('search', '原题搜索'), mk('translate', '自动翻译'), mk('ai', 'AI 解答'), mk('statement', '复制题面'), mk('sample', '样例复制'), mk('dark', '深色模式')];
+    const ck = [mk('origin', '原题识别'), mk('search', '原题搜索'), mk('translate', '自动翻译'), mk('ai', 'AI 解答与对话'), mk('statement', '复制题面'), mk('sample', '样例复制'), mk('dark', '深色模式')];
     const save = el('button', { class: 'yunoj-save', type: 'button' }, '保存');
     ck.forEach(c => p.appendChild(c)); p.appendChild(save);
 
@@ -1624,8 +2003,10 @@
       '#yunoj-jump .yunoj-search-toggle:hover{background:#6639ba}',
       '#yunoj-jump .yunoj-trans-toggle{background:#0ea5e9}',
       '#yunoj-jump .yunoj-trans-toggle:hover{background:#0284c7}',
-      '#yunoj-jump .yunoj-ai-toggle{background:#d97706}',
-      '#yunoj-jump .yunoj-ai-toggle:hover{background:#b45309}',
+      '#yunoj-jump .yunoj-ai-solve-toggle{background:#d97706}',
+      '#yunoj-jump .yunoj-ai-solve-toggle:hover{background:#b45309}',
+      '#yunoj-jump .yunoj-ai-chat-toggle{background:#059669}',
+      '#yunoj-jump .yunoj-ai-chat-toggle:hover{background:#047857}',
       '#yunoj-jump .yunoj-copy-pid{background:#6e7781}',
       '#yunoj-jump .yunoj-copy-pid:hover{background:#57606a}',
       '#yunoj-jump .yunoj-collapse-btn{background:#6e7781;padding:2px 8px;font-weight:bold;line-height:1;min-width:22px;text-align:center}',
@@ -1681,15 +2062,45 @@
       '#yunoj-trans .yunoj-trans-err{color:#c00}',
       '#yunoj-trans .yunoj-trans-progress{position:sticky;top:0;height:3px;background:#eaeef2;border-radius:2px;margin-bottom:10px;overflow:hidden;z-index:1}',
       '#yunoj-trans .yunoj-trans-progress-fill{height:100%;width:0;background:linear-gradient(90deg,#0ea5e9,#0969da);transition:width .3s ease}',
-      '#yunoj-ai{position:fixed;top:80px;right:12px;z-index:2147482995;width:520px;height:600px;max-height:85vh;display:flex;flex-direction:column;background:#fff;border:1px solid #ccc;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);font-size:13px}',
-      '#yunoj-ai .yunoj-ai-header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #eaeef2;background:#f6f8fa;border-radius:10px 10px 0 0;flex-shrink:0}',
+
+      // —— AI 面板主体 ——
+      '#yunoj-ai{position:fixed;top:80px;right:12px;z-index:2147482995;width:560px;height:660px;max-height:88vh;display:flex;flex-direction:column;background:#fff;border:1px solid #ccc;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);font-size:13px;overflow:hidden}',
+      '#yunoj-ai .yunoj-ai-header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #eaeef2;background:#f6f8fa;flex-shrink:0}',
       '#yunoj-ai .yunoj-ai-title{font-weight:600;font-size:13px;flex:1}',
       '#yunoj-ai .yunoj-ai-status{font-size:11px;color:#888;font-family:ui-monospace,Menlo,monospace;margin-right:4px}',
       '#yunoj-ai .yunoj-ai-btn{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:22px;padding:0 6px;border-radius:4px;font-size:12px;color:#444;text-decoration:none;background:#fff;border:1px solid #ddd;cursor:pointer;font-family:inherit}',
       '#yunoj-ai .yunoj-ai-btn:hover{background:#f0f0f0}',
       '#yunoj-ai .yunoj-ai-stop{color:#c00;border-color:#f0c0c0}',
       '#yunoj-ai .yunoj-ai-stop:hover{background:#ffe0e0;border-color:#c00}',
-      '#yunoj-ai .yunoj-ai-body{overflow-y:auto;padding:12px 16px;flex:1;font-size:13.5px;line-height:1.75;color:#222;user-select:text}',
+
+      // —— Tabs ——
+      '#yunoj-ai .yunoj-ai-tabs{display:flex;padding:0 10px;background:#f6f8fa;border-bottom:1px solid #eaeef2;flex-shrink:0}',
+      '#yunoj-ai .yunoj-ai-tab{padding:8px 16px;font-size:13px;color:#666;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;font-family:inherit}',
+      '#yunoj-ai .yunoj-ai-tab:hover{color:#0969da}',
+      '#yunoj-ai .yunoj-ai-tab.yunoj-ai-tab-active{color:#0969da;border-bottom-color:#0969da;font-weight:600;background:#fff}',
+
+      // —— Content 容器 ——
+      '#yunoj-ai .yunoj-ai-content{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}',
+
+      // —— 消息历史 ——
+      '#yunoj-ai .yunoj-ai-history{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-height:0}',
+      '#yunoj-ai .yunoj-ai-msg{max-width:88%;padding:8px 12px;border-radius:10px;line-height:1.75;font-size:13.5px;word-break:break-word;user-select:text}',
+      '#yunoj-ai .yunoj-ai-msg-user{align-self:flex-end;background:#1a73e8;color:#fff;border-bottom-right-radius:3px;white-space:pre-wrap}',
+      '#yunoj-ai .yunoj-ai-msg-assistant{align-self:flex-start;background:#f6f8fa;border:1px solid #eaeef2;color:#222;border-bottom-left-radius:3px;max-width:92%}',
+      '#yunoj-ai .yunoj-ai-msg-assistant .yunoj-ai-body{padding:0;background:transparent;overflow:visible;flex:initial;line-height:1.75;font-size:13.5px}',
+      '#yunoj-ai .yunoj-ai-system-tip{align-self:center;max-width:92%;padding:6px 10px;border-radius:6px;background:#fff5f5;border:1px solid #fecaca;color:#c00;font-size:12px}',
+
+      // —— 输入区 ——
+      '#yunoj-ai .yunoj-ai-input-area{display:flex;gap:8px;align-items:flex-end;padding:8px 10px;border-top:1px solid #eaeef2;background:#fff;flex-shrink:0}',
+      '#yunoj-ai .yunoj-ai-newchat{border:1px solid #ccc;border-radius:8px;background:#f6f8fa;color:#444;width:34px;height:34px;font-size:16px;cursor:pointer;font-family:inherit;flex-shrink:0;display:flex;align-items:center;justify-content:center}',
+      '#yunoj-ai .yunoj-ai-newchat:hover{background:#eaeef2;border-color:#999}',
+      '#yunoj-ai .yunoj-ai-input{flex:1;resize:none;border:1px solid #ccc;border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;line-height:1.5;max-height:120px;overflow-y:auto;outline:none;background:#fff;color:#222}',
+      '#yunoj-ai .yunoj-ai-input:focus{border-color:#0969da;box-shadow:0 0 0 2px rgba(9,105,218,.15)}',
+      '#yunoj-ai .yunoj-ai-send{border:none;border-radius:8px;background:#0969da;color:#fff;padding:0 14px;height:34px;font-size:13px;cursor:pointer;white-space:nowrap;font-family:inherit}',
+      '#yunoj-ai .yunoj-ai-send:hover:not(:disabled){background:#0550ae}',
+      '#yunoj-ai .yunoj-ai-send:disabled{background:#bdc1c6;cursor:not-allowed}',
+
+      // —— 旧 body 内部样式（气泡复用）——
       '#yunoj-ai .yunoj-ai-body p{margin:0 0 8px}',
       '#yunoj-ai .yunoj-ai-body h2,#yunoj-ai .yunoj-ai-body h3,#yunoj-ai .yunoj-ai-body h4{margin:12px 0 6px;font-weight:600}',
       '#yunoj-ai .yunoj-ai-body h2{font-size:16px}',
@@ -1702,23 +2113,26 @@
       '#yunoj-ai .yunoj-ai-code-lang{position:absolute;top:0;left:0;right:0;height:22px;padding:0 10px;font-size:11px;line-height:22px;color:#666;background:#ebeff3;border-radius:6px 6px 0 0;display:flex;justify-content:space-between;font-family:ui-monospace,Menlo,monospace}',
       '#yunoj-ai .yunoj-ai-code-copy{cursor:pointer;color:#0969da;user-select:none}',
       '#yunoj-ai .yunoj-ai-code-copy:hover{text-decoration:underline}',
-      '#yunoj-ai .yunoj-ai-live{padding:6px 10px;margin:0 0 10px;border-radius:6px;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;color:#555;background:#f6f8fa;border:1px solid #eaeef2;display:flex;align-items:center;flex-wrap:wrap;line-height:1.6}',
+      '#yunoj-ai .yunoj-ai-live{padding:6px 10px;margin:0 0 10px;border-radius:6px;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;color:#555;background:#fff;border:1px solid #eaeef2;display:flex;align-items:center;flex-wrap:wrap;line-height:1.6}',
       '#yunoj-ai .yunoj-ai-live b{color:#0969da;font-weight:600}',
       '#yunoj-ai .yunoj-ai-live-ok{background:#f0fff4;border-color:#a7f3d0;color:#1a7f37}',
       '#yunoj-ai .yunoj-ai-live-ok b{color:#1a7f37}',
       '#yunoj-ai .yunoj-ai-live-err{background:#fff5f5;border-color:#fecaca;color:#c00}',
       '#yunoj-ai .yunoj-ai-live-err b{color:#c00}',
-      '#yunoj-ai .yunoj-ai-think{margin:8px 0 12px;border:1px solid #eaeef2;border-radius:6px;background:#fafbfc;font-size:12.5px}',
+      '#yunoj-ai .yunoj-ai-think{margin:8px 0 12px;border:1px solid #eaeef2;border-radius:6px;background:#fff;font-size:12.5px}',
       '#yunoj-ai .yunoj-ai-think summary{cursor:pointer;padding:6px 10px;color:#666;user-select:none;outline:none;font-weight:500}',
       '#yunoj-ai .yunoj-ai-think summary:hover{color:#0969da}',
       '#yunoj-ai .yunoj-ai-think-body{padding:0 10px 10px;color:#777;line-height:1.7;white-space:pre-wrap;word-break:break-word;max-height:280px;overflow-y:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}',
       '#yunoj-ai .yunoj-ai-empty{color:#999;text-align:center;padding:40px 8px;font-size:13px}',
       '#yunoj-ai .yunoj-ai-err{color:#c00}',
       '#yunoj-ai .yunoj-ai-tip{padding:20px 8px;text-align:center;color:#888;font-size:12.5px;line-height:1.7}',
-      '#yunoj-ai .yunoj-ai-footer{padding:6px 12px;border-top:1px solid #eaeef2;background:#f8f9fa;font-size:11px;color:#999;font-family:ui-monospace,Menlo,monospace;border-radius:0 0 10px 10px;flex-shrink:0}',
+      '#yunoj-ai .yunoj-ai-footer{padding:6px 12px;border-top:1px solid #eaeef2;background:#f8f9fa;font-size:11px;color:#999;font-family:ui-monospace,Menlo,monospace;flex-shrink:0}',
       '#yunoj-ai .katex{font-size:1.05em}',
       '#yunoj-ai .katex-display{margin:10px 0;overflow-x:auto;overflow-y:hidden;padding:4px 0}',
       '#yunoj-ai .katex-display > .katex{display:block;text-align:center;white-space:nowrap}',
+      '#yunoj-ai .yunoj-spinner{display:inline-block;width:12px;height:12px;border:2px solid #ccc;border-top-color:#0969da;border-radius:50%;animation:yunoj-spin .8s linear infinite;vertical-align:-2px;margin-right:6px}',
+
+      // —— 配置面板 ——
       '#yunoj-ai-cfg,#yunoj-trans-cfg{position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:2147482996;width:460px;padding:16px;background:#fff;border:1px solid #ccc;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);font-size:13px}',
       '#yunoj-ai-cfg .yunoj-ai-cfg-header,#yunoj-trans-cfg .yunoj-ai-cfg-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}',
       '#yunoj-ai-cfg .yunoj-ai-cfg-title,#yunoj-trans-cfg .yunoj-ai-cfg-title{font-weight:600;font-size:14px;flex:1}',
@@ -1741,6 +2155,8 @@
       '#yunoj-ai-cfg .yunoj-ai-cfg-save,#yunoj-trans-cfg .yunoj-ai-cfg-save{padding:5px 16px;border:none;border-radius:4px;background:#0969da;color:#fff;text-decoration:none;font-size:12px;cursor:pointer;font-family:inherit}',
       '#yunoj-ai-cfg .yunoj-ai-cfg-save:hover,#yunoj-trans-cfg .yunoj-ai-cfg-save:hover{background:#0550ae}',
       '.yunoj-trans-custom-fields textarea.yunoj-ai-cfg-input{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.4;resize:vertical}',
+
+      // —— Ask / 其它 ——
       '#yunoj-ask{position:fixed;right:18px;bottom:80px;z-index:2147483002;width:320px;padding:16px;background:#fff;border:1px solid #ccc;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);font-family:system-ui,sans-serif;font-size:13px;color:#222;box-sizing:border-box}',
       '#yunoj-ask .yunoj-ask-title{font-weight:600;font-size:14px;margin-bottom:6px}',
       '#yunoj-ask .yunoj-ask-desc{color:#666;font-size:12.5px;line-height:1.6;margin-bottom:12px}',
@@ -1782,51 +2198,30 @@
   // 初始化
   // ============================================================
   function modifyLuckText() {
-    // 仅在洛谷域名下生效
     if (!location.hostname.includes('luogu.com.cn')) return;
-
-    const replacements = {
-      '大凶': '大区',
-      '小凶': '小区',
-      '中平': '中区',
-      '小吉': '小区',
-      '大吉': '大区'
-    };
-
+    const replacements = { '大凶': '大区', '小凶': '小区', '中平': '中区', '小吉': '小区', '大吉': '大区' };
     const changeText = (elem) => {
       if (!elem) return;
       let html = elem.innerHTML;
       let changed = false;
       for (const [k, v] of Object.entries(replacements)) {
-        if (html.includes(k)) {
-          html = html.replace(new RegExp(k, 'g'), v);
-          changed = true;
-        }
+        if (html.includes(k)) { html = html.replace(new RegExp(k, 'g'), v); changed = true; }
       }
       if (changed) elem.innerHTML = html;
     };
-
-    // 1. 处理页面加载时已有的运势结果
     document.querySelectorAll('.lg-punch-result').forEach(changeText);
-
-    // 2. 监听打卡后的局部刷新
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         if (mutation.type === 'childList') {
           mutation.addedNodes.forEach(node => {
             if (node.nodeType === 1) {
-              if (node.matches && node.matches('.lg-punch-result')) {
-                changeText(node);
-              } else if (node.querySelectorAll) {
-                node.querySelectorAll('.lg-punch-result').forEach(changeText);
-              }
+              if (node.matches && node.matches('.lg-punch-result')) changeText(node);
+              else if (node.querySelectorAll) node.querySelectorAll('.lg-punch-result').forEach(changeText);
             }
           });
         }
       }
     });
-
-    // 开始监听 body 下的 DOM 变动
     observer.observe(document.body, { childList: true, subtree: true });
   }
   function init() {
@@ -1847,7 +2242,6 @@
       if (!document.querySelector('#yunoj-jump') && (get('origin') || get('statement') || get('search') || get('translate') || get('ai'))) {
         jumpBar();
       } else {
-        // Vue 渲染出标题后，刷新工具栏的 OJ 名称、洛谷链接和题号
         const bar = document.querySelector('#yunoj-jump');
         if (bar) {
           const lb = bar.querySelector('.yunoj-lb');
