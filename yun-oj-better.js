@@ -2,8 +2,8 @@
 // @name         Yun OJ Better
 // @author       Sky-Yun
 // @namespace    https://github.com/skyyuntgc/YUN-OJ-BETTER
-// @version      1.9.2
-// @description  通用 OJ 增强：AI 解答 + AI 对话、搜题、翻译、题面复制、深色模式、快速跳转，不收集用户数据，API Key 本地存储，题面会发往第三方 API
+// @version      1.10.0
+// @description  通用 OJ 增强：AI 解答 + AI 对话、搜题、翻译、随机跳题、题面复制、深色模式、快速跳转，不收集用户数据，API Key 本地存储，题面会发往第三方 API
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -34,9 +34,16 @@
   // 存储
   // ============================================================
   const K = 'yunoj.', D = {
-    dark: false, sample: true, origin: true, statement: true, search: true, translate: true, ai: true,
+    dark: false, sample: true, origin: true, statement: true, search: true, random: true, translate: true, ai: true,
     barCollapsed: false, searchSource: 'yuantiji', translateTarget: 'zh-CN', userOJs: '{}',
     zhipuEngine: 'search_pro',
+    // ---- 随机跳题 ----
+    lgDiffMin: 3,        // 3 = 普及/提高-（黄题）
+    lgDiffMax: 3,
+    lgKeyword: '',
+    lgNoRepeat: true,
+    lgAutoJump: true,
+    posRandom: null,
     // 翻译配置
     translateProvider: 'google',
     customTransUrl: '',
@@ -358,7 +365,7 @@
     return best;
   }
 
-  const COMMON_NOISE = ['button', 'script', 'style', 'noscript', 'nav', 'header', 'footer', 'aside', '[role="tablist"]', '[role="navigation"]', '[role="banner"]', '[class*="tab-bar"]', '[class*="tabs-nav"]', '[class*="tabbar"]', '[class*="sidebar"]', '[class*="side-bar"]', '[class*="side-nav"]', '[class*="nav-bar"]', '[class*="navbar"]', '[class*="nav-list"]', '[class*="breadcrumb"]', '[class*="crumb"]', '[class*="problem-list"]', '[class*="problem-nav"]', '[class*="contest-header"]', '[class*="contest-info"]', '[class*="typography-copy"]', '[class*="copy-btn"]', '[class*="copy-code"]', '[aria-label="复制"]', '[aria-label="copy"]', '.anticon-copy', '.ac-ant-typography-copy', '[class*="pagination"]', '[class*="feedback"]', '[class*="code-mirror"]', '[class*="codeMirror"]', '[class*="editor-toolbar"]', '[class*="toolbar"]', '.yunoj-copy', '.yunoj-jump', '.yunoj-statement-btn', '#yunoj-jump', '#yunoj-fab', '#yunoj-panel', '#yunoj-search', '#yunoj-trans', '#yunoj-ask', '#yunoj-reentry', '#yunoj-oj-config', '#yunoj-ai', '#yunoj-ai-cfg', '#yunoj-trans-cfg'];
+  const COMMON_NOISE = ['button', 'script', 'style', 'noscript', 'nav', 'header', 'footer', 'aside', '[role="tablist"]', '[role="navigation"]', '[role="banner"]', '[class*="tab-bar"]', '[class*="tabs-nav"]', '[class*="tabbar"]', '[class*="sidebar"]', '[class*="side-bar"]', '[class*="side-nav"]', '[class*="nav-bar"]', '[class*="navbar"]', '[class*="nav-list"]', '[class*="breadcrumb"]', '[class*="crumb"]', '[class*="problem-list"]', '[class*="problem-nav"]', '[class*="contest-header"]', '[class*="contest-info"]', '[class*="typography-copy"]', '[class*="copy-btn"]', '[class*="copy-code"]', '[aria-label="复制"]', '[aria-label="copy"]', '.anticon-copy', '.ac-ant-typography-copy', '[class*="pagination"]', '[class*="feedback"]', '[class*="code-mirror"]', '[class*="codeMirror"]', '[class*="editor-toolbar"]', '[class*="toolbar"]', '.yunoj-copy', '.yunoj-jump', '.yunoj-statement-btn', '#yunoj-jump', '#yunoj-fab', '#yunoj-panel', '#yunoj-search', '#yunoj-trans', '#yunoj-ask', '#yunoj-reentry', '#yunoj-oj-config', '#yunoj-ai', '#yunoj-ai-cfg', '#yunoj-trans-cfg', '#yunoj-random'];
 
   function cloneStatementForExtract() {
     const root = findStatementRoot();
@@ -1713,6 +1720,393 @@
   }
   function getToolbarLabel() { if (OJ.key !== '__default') return OJ.name; const auto = get(autoKey()); if (auto === true) return 'UnknownOJ'; if (auto === false) return '工具'; return looksLikeOJ() ? 'UnknownOJ' : '工具'; }
 
+  // ============================================================
+  // 随机跳题（整合自 Luogu Random Picker 思路，复用 OJBetter UI）
+  // ============================================================
+  const LG_SITE = 'https://www.luogu.com.cn';
+  const LG_LS_INDEX = 'yunoj_lg_index_v1';
+  const LG_LS_META  = 'yunoj_lg_meta_v1';
+  const LG_TTL = 7 * 24 * 60 * 60 * 1000;
+  const LG_CONCURRENCY = 5;
+  const LG_RETRY = 3;
+
+  const LG_DIFFS = [
+    { v: 0, name: '暂无评定',   color: '#9e9e9e' },
+    { v: 1, name: '入门',       color: '#e74c3c' },
+    { v: 2, name: '普及-',      color: '#f39c12' },
+    { v: 3, name: '普及/提高-', color: '#f1c40f' },  // 黄题
+    { v: 4, name: '普及+/提高', color: '#2ecc71' },
+    { v: 5, name: '提高+/省选-', color: '#00bcd4' },
+    { v: 6, name: '省选/NOI-',  color: '#3498db' },
+    { v: 7, name: 'NOI/省选',   color: '#9b59b6' },
+    { v: 8, name: 'NOI/NOI+/CTS', color: '#34495e' },
+  ];
+
+  let lgSyncing = false;
+  let lgSyncPromise = null;
+  let lgAbortFlag = false;
+
+  const lgDelay = ms => new Promise(r => setTimeout(r, ms));
+  const lgPidNum = pid => { const n = parseInt(String(pid).replace(/[^0-9]/g, ''), 10); return Number.isFinite(n) ? n : 0; };
+
+  function lgParseList(text) {
+    const raw = String(text || '').trim();
+    let json = null;
+    if (raw.charAt(0) === '{') {
+      json = JSON.parse(raw);
+    } else {
+      const m = raw.match(/<script id="lentille-context" type="application\/json">([\s\S]*?)<\/script>/);
+      if (!m) throw new Error('页面格式异常');
+      json = JSON.parse(m[1]);
+    }
+    const data = (json && (json.data || json.currentData)) || {};
+    const pr = data.problems || {};
+    const arr = Array.isArray(pr.result) ? pr.result : [];
+    return {
+      count: pr.count || 0,
+      perPage: pr.perPage || 50,
+      problems: arr.filter(x => x && x.pid).map(x => ({
+        pid: String(x.pid),
+        name: String(x.name || ''),
+        diff: Number.isFinite(+x.difficulty) ? +x.difficulty : 0,
+      })),
+    };
+  }
+
+  async function lgFetchPage(page) {
+    const url = LG_SITE + '/problem/list?page=' + page + '&_contentOnly=1';
+    let lastErr = null;
+    for (let attempt = 0; attempt < LG_RETRY; attempt++) {
+      try {
+        let text;
+        if (location.hostname.endsWith('luogu.com.cn')) {
+          const r = await fetch(url, { credentials: 'include', cache: 'no-store' });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          text = await r.text();
+        } else {
+          if (typeof GM_xmlhttpRequest !== 'function') throw new Error('GM_xmlhttpRequest 不可用');
+          text = await new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+              method: 'GET', url, timeout: 15000,
+              onload: res => res.status === 200 ? resolve(res.responseText) : reject(new Error('HTTP ' + res.status)),
+              onerror: () => reject(new Error('网络错误')),
+              ontimeout: () => reject(new Error('请求超时')),
+            });
+          });
+        }
+        const parsed = lgParseList(text);
+        if (!parsed.problems.length && !parsed.count) throw new Error('空页');
+        return parsed;
+      } catch (e) {
+        lastErr = e;
+        await lgDelay(400 * (attempt + 1) + Math.random() * 300);
+      }
+    }
+    throw lastErr || new Error('获取失败');
+  }
+
+  async function lgSync(onProgress) {
+    const map = new Map();
+    const first = await lgFetchPage(1);
+    const total = first.count || 0;
+    const perPage = first.perPage || 50;
+    const totalPages = Math.max(1, Math.ceil(total / perPage));
+    const add = list => { for (const p of list) if (!map.has(p.pid)) map.set(p.pid, p); };
+    add(first.problems);
+    onProgress && onProgress(map.size, total, 1, totalPages);
+
+    let next = 2;
+    let fails = 0;
+    const worker = async () => {
+      while (next <= totalPages) {
+        if (lgAbortFlag) throw new Error('已取消');
+        const page = next++;
+        try {
+          const r = await lgFetchPage(page);
+          add(r.problems);
+          fails = 0;
+        } catch (e) {
+          if (++fails >= 5) throw e;
+        }
+        onProgress && onProgress(map.size, total, Math.min(page, totalPages), totalPages);
+      }
+    };
+    const n = Math.min(LG_CONCURRENCY, Math.max(0, totalPages - 1));
+    const workers = [];
+    for (let i = 0; i < n; i++) workers.push(worker());
+    await Promise.allSettled(workers);
+
+    const list = [...map.values()];
+    try {
+      localStorage.setItem(LG_LS_INDEX, list.map(p =>
+        [p.pid, String(p.name || '').replace(/[\t\n\r]/g, ' '), p.diff].join('\t')
+      ).join('\n'));
+      localStorage.setItem(LG_LS_META, JSON.stringify({
+        ts: Date.now(), count: list.length, complete: map.size >= total,
+      }));
+    } catch (e) { /* 存储超限则忽略 */ }
+    onProgress && onProgress(list.length, total, totalPages, totalPages);
+    return list;
+  }
+
+  function lgLoadIndex() {
+    try {
+      const meta = JSON.parse(localStorage.getItem(LG_LS_META) || 'null');
+      if (!meta || !meta.ts || Date.now() - meta.ts > LG_TTL) return null;
+      const blob = localStorage.getItem(LG_LS_INDEX);
+      if (!blob) return null;
+      const out = [];
+      for (const line of blob.split('\n')) {
+        if (!line) continue;
+        const p = line.split('\t');
+        if (p.length < 3) continue;
+        out.push({ pid: p[0], name: p[1], diff: +p[2] || 0 });
+      }
+      return out.length ? out : null;
+    } catch (e) { return null; }
+  }
+
+  function lgEnsureIndex(onProgress) {
+    const cached = lgLoadIndex();
+    if (cached) return Promise.resolve(cached);
+    if (lgSyncPromise) return lgSyncPromise;
+    lgAbortFlag = false;
+    lgSyncing = true;
+    lgSyncPromise = lgSync(onProgress).then(list => {
+      lgSyncing = false; lgSyncPromise = null; return list;
+    }, err => {
+      lgSyncing = false; lgSyncPromise = null; throw err;
+    });
+    return lgSyncPromise;
+  }
+
+  function lgForceSync(onProgress) {
+    try { localStorage.removeItem(LG_LS_META); } catch (e) {}
+    return lgEnsureIndex(onProgress);
+  }
+
+  function lgSeenSet() {
+    try { return new Set(JSON.parse(sessionStorage.getItem('yunoj_lg_seen') || '[]')); }
+    catch (e) { return new Set(); }
+  }
+  function lgMarkSeen(pid) {
+    if (!get('lgNoRepeat')) return;
+    try {
+      const s = lgSeenSet();
+      s.add(pid);
+      sessionStorage.setItem('yunoj_lg_seen', JSON.stringify([...s].slice(-3000)));
+    } catch (e) {}
+  }
+
+  function lgPick(problems) {
+    const a = Math.min(+get('lgDiffMin'), +get('lgDiffMax'));
+    const b = Math.max(+get('lgDiffMin'), +get('lgDiffMax'));
+    const kwRaw = String(get('lgKeyword') || '').trim();
+    const kw = kwRaw.toLowerCase();
+    const kwNum = /^p?\d+$/i.test(kwRaw) ? lgPidNum(kwRaw) : 0;
+
+    let pool = problems.filter(p => {
+      if (p.diff < a || p.diff > b) return false;
+      if (kw) {
+        if (kwNum > 0) return lgPidNum(p.pid) === kwNum;
+        if (String(p.name).toLowerCase().indexOf(kw) < 0) return false;
+      }
+      return true;
+    });
+    if (!pool.length) return null;
+
+    if (get('lgNoRepeat')) {
+      const seen = lgSeenSet();
+      const fresh = pool.filter(p => !seen.has(p.pid));
+      if (fresh.length) pool = fresh;
+    }
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function toastMsg(msg) {
+    let t = $('#yunoj-toast');
+    if (!t) { t = el('div', { id: 'yunoj-toast' }); document.body.appendChild(t); }
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t.__timer);
+    t.__timer = setTimeout(() => t.classList.remove('show'), 2400);
+  }
+
+  function randomPanel() {
+    if ($('#yunoj-random')) return;
+    const panel = el('div', { id: 'yunoj-random' });
+    panel.style.display = 'none';
+
+    // 标题栏
+    const header = el('div', { class: 'yunoj-random-header' });
+    header.appendChild(el('span', { class: 'yunoj-random-title' }, '🎲 随机跳题'));
+    const status = el('span', { class: 'yunoj-random-status' }, '');
+    header.appendChild(status);
+    const closeBtn = el('a', { class: 'yunoj-random-btn', href: 'javascript:;', title: '关闭' }, '✕');
+    closeBtn.onclick = () => { panel.style.display = 'none'; };
+    header.appendChild(closeBtn);
+    panel.appendChild(header);
+
+    // 难度区间
+    const diffRow = el('div', { class: 'yunoj-random-row' });
+    diffRow.appendChild(el('span', { class: 'yunoj-random-label' }, '难度'));
+    const selMin = el('select', { class: 'yunoj-random-select' });
+    const selMax = el('select', { class: 'yunoj-random-select' });
+    LG_DIFFS.forEach(d => {
+      selMin.appendChild(new Option(d.name, String(d.v)));
+      selMax.appendChild(new Option(d.name, String(d.v)));
+    });
+    selMin.value = String(get('lgDiffMin'));
+    selMax.value = String(get('lgDiffMax'));
+    diffRow.appendChild(selMin);
+    diffRow.appendChild(el('span', { class: 'yunoj-random-dash' }, '～'));
+    diffRow.appendChild(selMax);
+    panel.appendChild(diffRow);
+
+    // 关键词
+    const kwRow = el('div', { class: 'yunoj-random-row' });
+    kwRow.appendChild(el('span', { class: 'yunoj-random-label' }, '关键词'));
+    const kwInput = el('input', { type: 'text', class: 'yunoj-random-input', placeholder: '留空不限，支持题号如 P1000' });
+    kwInput.value = get('lgKeyword') || '';
+    kwRow.appendChild(kwInput);
+    panel.appendChild(kwRow);
+
+    // 选项
+    const optRow = el('div', { class: 'yunoj-random-row' });
+    const mkChk = (label, key) => {
+      const l = el('label', { class: 'yunoj-random-chk' });
+      const i = el('input', { type: 'checkbox' });
+      i.checked = !!get(key);
+      i.onchange = () => set(key, i.checked);
+      l.appendChild(i);
+      l.appendChild(el('span', null, label));
+      return l;
+    };
+    optRow.appendChild(mkChk('本次会话不重复', 'lgNoRepeat'));
+    optRow.appendChild(mkChk('抽中后自动跳转', 'lgAutoJump'));
+    panel.appendChild(optRow);
+
+    // 结果区
+    const result = el('div', { class: 'yunoj-random-result' });
+    result.style.display = 'none';
+    panel.appendChild(result);
+
+    // 进度条
+    const progWrap = el('div', { class: 'yunoj-random-progress' });
+    progWrap.style.display = 'none';
+    const progBar = el('div', { class: 'yunoj-random-bar' });
+    const progFill = el('i');
+    progBar.appendChild(progFill);
+    progWrap.appendChild(progBar);
+    panel.appendChild(progWrap);
+
+    // 按钮
+    const btnRow = el('div', { class: 'yunoj-random-actions' });
+    const syncBtn = el('a', { class: 'yunoj-random-mini', href: 'javascript:;' }, '更新题库');
+    const goBtn = el('a', { class: 'yunoj-random-go', href: 'javascript:;' }, '🎲 抽一题');
+    btnRow.appendChild(syncBtn);
+    btnRow.appendChild(goBtn);
+    panel.appendChild(btnRow);
+
+    // ---- 内部工具 ----
+    const setProgress = (text, pct) => {
+      if (text == null) { progWrap.style.display = 'none'; status.textContent = ''; return; }
+      progWrap.style.display = 'block';
+      progFill.style.width = Math.max(0, Math.min(1, pct || 0)) * 100 + '%';
+      status.textContent = text;
+    };
+
+    const showResult = p => {
+      result.innerHTML = '';
+      if (!p) {
+        result.appendChild(el('div', { class: 'yunoj-random-empty' }, '没有符合条件的题目，试试放宽难度或清空关键词'));
+        result.style.display = 'flex';
+        return;
+      }
+      const d = LG_DIFFS.find(x => x.v === p.diff) || LG_DIFFS[0];
+      const url = LG_SITE + '/problem/' + encodeURIComponent(p.pid);
+      const pidEl = el('span', { class: 'yunoj-random-pid' }, p.pid);
+      const diffEl = el('span', { class: 'yunoj-random-diff' }, d.name);
+      diffEl.style.background = d.color;
+      const nameEl = el('span', { class: 'yunoj-random-name' }, p.name || '(未命名)');
+      const openEl = el('a', { class: 'yunoj-random-open', href: url, target: '_blank', rel: 'noopener' }, '打开 ↗');
+      result.appendChild(pidEl);
+      result.appendChild(diffEl);
+      result.appendChild(nameEl);
+      result.appendChild(openEl);
+      result.style.display = 'flex';
+    };
+
+    const pickFrom = list => {
+      const p = lgPick(list);
+      if (p) lgMarkSeen(p.pid);
+      showResult(p);
+      if (p && get('lgAutoJump')) {
+        setTimeout(() => { window.location.href = LG_SITE + '/problem/' + encodeURIComponent(p.pid); }, 450);
+      }
+    };
+
+    const runPick = () => {
+      if (lgSyncing) { toastMsg('题库同步中，请稍候…'); return; }
+      let list = lgLoadIndex();
+      if (list) { pickFrom(list); return; }
+
+      // 首次使用：先同步再抽
+      goBtn.style.pointerEvents = 'none';
+      goBtn.style.opacity = '.6';
+      setProgress('同步题库 0 / 0', 0);
+      lgEnsureIndex((done, total, page, totalPages) => {
+        setProgress('同步题库 ' + done + ' / ' + total, total ? done / total : 0);
+      }).then(list2 => {
+        goBtn.style.pointerEvents = '';
+        goBtn.style.opacity = '';
+        setProgress(null);
+        if (!list2 || !list2.length) { toastMsg('题库同步失败'); return; }
+        toastMsg('题库已就绪，共 ' + list2.length + ' 题');
+        pickFrom(list2);
+      }).catch(e => {
+        goBtn.style.pointerEvents = '';
+        goBtn.style.opacity = '';
+        setProgress(null);
+        toastMsg('同步失败：' + (e.message || e));
+      });
+    };
+
+    // ---- 事件 ----
+    selMin.onchange = () => {
+      let a = +selMin.value, b = +selMax.value;
+      if (a > b) { b = a; selMax.value = String(b); }
+      set('lgDiffMin', a); set('lgDiffMax', b);
+    };
+    selMax.onchange = () => {
+      let a = +selMin.value, b = +selMax.value;
+      if (b < a) { a = b; selMin.value = String(a); }
+      set('lgDiffMin', a); set('lgDiffMax', b);
+    };
+    kwInput.oninput = () => set('lgKeyword', kwInput.value);
+
+    syncBtn.onclick = () => {
+      if (lgSyncing) { lgAbortFlag = true; toastMsg('已请求取消…'); return; }
+      syncBtn.textContent = '取消';
+      setProgress('同步题库 0 / 0', 0);
+      lgForceSync((done, total, page, totalPages) => {
+        setProgress('同步题库 ' + done + ' / ' + total, total ? done / total : 0);
+      }).then(list => {
+        syncBtn.textContent = '更新题库';
+        setProgress(null);
+        toastMsg('题库已更新，共 ' + list.length + ' 题');
+      }).catch(e => {
+        syncBtn.textContent = '更新题库';
+        setProgress(null);
+        toastMsg('同步失败：' + (e.message || e));
+      });
+    };
+    goBtn.onclick = runPick;
+
+    document.body.appendChild(panel);
+    makeDraggable(panel, 'posRandom');
+  }
+
   function jumpBar() {
     if ($('#yunoj-jump')) return;
     const code = OJ.getCode(); const label = getToolbarLabel();
@@ -1725,6 +2119,15 @@
       bar.appendChild(el('a', { class: 'yunoj-a', href: vjUrl, target: '_blank', rel: 'noopener' }, 'VJudge'));
     }
     if (get('search')) { const sBtn = el('a', { class: 'yunoj-a yunoj-search-toggle', href: 'javascript:;' }, '🔍搜索'); sBtn.onclick = () => { const p = $('#yunoj-search'); if (!p) return; if (p.style.display === 'none') { const sel = getSelectedText(); const kw = sel || buildSearchKeyword(); const kwInput = p.__kwInput; if (kwInput) kwInput.value = kw; p.style.display = 'block'; if (kw) doSearch(kw); if (kwInput) setTimeout(() => kwInput.focus(), 30); } else p.style.display = 'none'; }; bar.appendChild(sBtn); }
+    if (get('random')) {
+      const rBtn = el('a', { class: 'yunoj-a yunoj-random-toggle', href: 'javascript:;' }, '🎲随机');
+      rBtn.onclick = () => {
+        const p = $('#yunoj-random');
+        if (!p) return;
+        p.style.display = (p.style.display === 'none' || !p.style.display) ? 'block' : 'none';
+      };
+      bar.appendChild(rBtn);
+    }
     if (get('translate')) { const tBtn = el('a', { class: 'yunoj-a yunoj-trans-toggle', href: 'javascript:;' }, '🌐翻译'); tBtn.onclick = () => { const p = $('#yunoj-trans'); if (!p) return; if (p.style.display === 'none') { doTranslate(); } else { if (translateAbort) translateAbort(); p.style.display = 'none'; } }; bar.appendChild(tBtn); }
     if (get('ai')) {
       const solveBtn = el('a', { class: 'yunoj-a yunoj-ai-solve-toggle', href: 'javascript:;' }, '🤖解答');
@@ -1757,7 +2160,7 @@
       collapseBtn.textContent = now ? '🔧' : '−';
       collapseBtn.title = now ? '展开工具栏' : '折叠工具栏';
       set('barCollapsed', now);
-      if (now) { const p = $('#yunoj-search'); if (p) p.style.display = 'none'; const t = $('#yunoj-trans'); if (t) t.style.display = 'none'; const a = $('#yunoj-ai'); if (a) a.style.display = 'none'; }
+      if (now) { const p = $('#yunoj-search'); if (p) p.style.display = 'none'; const r = $('#yunoj-random'); if (r) r.style.display = 'none'; const t = $('#yunoj-trans'); if (t) t.style.display = 'none'; const a = $('#yunoj-ai'); if (a) a.style.display = 'none'; }
     };
     bar.appendChild(collapseBtn);
     document.body.appendChild(bar);
@@ -1825,7 +2228,7 @@
     const fab = el('button', { id: 'yunoj-fab', type: 'button', title: 'Yun OJ Better 设置（可拖动）' }, '⚙');
     const p = el('div', { id: 'yunoj-panel' }); p.style.display = 'none';
     const mk = (k, label) => { const l = el('label'); const i = el('input', { type: 'checkbox' }); i.checked = get(k); i.dataset.k = k; l.appendChild(i); l.appendChild(el('span', null, label)); return l; };
-    const ck = [mk('origin', '原题识别'), mk('search', '原题搜索'), mk('translate', '自动翻译'), mk('ai', 'AI 解答与对话'), mk('statement', '复制题面'), mk('sample', '样例复制'), mk('dark', '深色模式')];
+    const ck = [mk('origin', '原题识别'), mk('search', '原题搜索'), mk('random', '随机跳题'), mk('translate', '自动翻译'), mk('ai', 'AI 解答与对话'), mk('statement', '复制题面'), mk('sample', '样例复制'), mk('dark', '深色模式')];
     const save = el('button', { class: 'yunoj-save', type: 'button' }, '保存');
     ck.forEach(c => p.appendChild(c)); p.appendChild(save);
 
@@ -1851,9 +2254,9 @@
     save.onclick = () => {
       ck.forEach(c => set(c.querySelector('input').dataset.k, c.querySelector('input').checked));
       applyDark();
-      ['#yunoj-jump', '#yunoj-search', '#yunoj-trans', '#yunoj-ai'].forEach(sel => { const n = $(sel); if (n) n.remove(); });
-      searchPanel(); translationPanel(); aiPanel();
-      if (get('origin') || get('statement') || get('search') || get('translate') || get('ai')) jumpBar();
+      ['#yunoj-jump', '#yunoj-search', '#yunoj-random', '#yunoj-trans', '#yunoj-ai'].forEach(sel => { const n = $(sel); if (n) n.remove(); });
+      searchPanel(); randomPanel(); translationPanel(); aiPanel();
+      if (get('origin') || get('statement') || get('search') || get('random') || get('translate') || get('ai')) jumpBar();
       $$('.yunoj-copy').forEach(b => b.remove());
       if (get('sample')) sampleCopy();
       p.style.display = 'none';
@@ -1930,13 +2333,13 @@
       '.yunoj-copy{margin-left:8px;padding:1px 8px;font-size:12px;border:1px solid #999;border-radius:4px;background:#fff;color:#222;cursor:pointer;vertical-align:middle}',
       '.yunoj-copy:hover{background:#f0f0f0}',
       '.yunoj-dragging{transition:none !important}',
-      '#yunoj-fab,#yunoj-jump,#yunoj-panel,#yunoj-search,#yunoj-trans,#yunoj-reentry,#yunoj-oj-config,#yunoj-ai,#yunoj-ai-cfg,#yunoj-trans-cfg{cursor:grab;font-family:system-ui,-apple-system,sans-serif;color:#222;box-sizing:border-box}',
-      '#yunoj-fab.yunoj-dragging,#yunoj-jump.yunoj-dragging,#yunoj-panel.yunoj-dragging,#yunoj-search.yunoj-dragging,#yunoj-trans.yunoj-dragging,#yunoj-reentry.yunoj-dragging,#yunoj-oj-config.yunoj-dragging,#yunoj-ai.yunoj-dragging,#yunoj-ai-cfg.yunoj-dragging,#yunoj-trans-cfg.yunoj-dragging{cursor:grabbing}',
-      '#yunoj-jump .yunoj-a,#yunoj-panel label,#yunoj-panel input,#yunoj-panel button,#yunoj-search input,#yunoj-search select,#yunoj-oj-config input,#yunoj-ai-cfg input,#yunoj-ai-cfg select,#yunoj-trans-cfg input,#yunoj-trans-cfg select,#yunoj-trans-cfg textarea{cursor:pointer}',
-      '#yunoj-search input,#yunoj-trans textarea,#yunoj-oj-config input,#yunoj-ai-cfg input,#yunoj-trans-cfg textarea{cursor:text}',
-      '#yunoj-search a,#yunoj-trans a,#yunoj-oj-config a,#yunoj-ai a,#yunoj-ai-cfg a,#yunoj-trans-cfg a{cursor:pointer}',
-      '#yunoj-fab,#yunoj-jump,#yunoj-panel,#yunoj-search,#yunoj-trans,#yunoj-oj-config,#yunoj-ai,#yunoj-ai-cfg,#yunoj-trans-cfg{user-select:none;-webkit-user-select:none}',
-      '#yunoj-panel input,#yunoj-search input,#yunoj-trans .yunoj-trans-body,#yunoj-oj-config input,#yunoj-ai-cfg input,#yunoj-ai-cfg select,#yunoj-ai .yunoj-ai-body,#yunoj-trans-cfg input,#yunoj-trans-cfg select,#yunoj-trans-cfg textarea{user-select:text;-webkit-user-select:text}',
+      '#yunoj-fab,#yunoj-jump,#yunoj-panel,#yunoj-search,#yunoj-random,#yunoj-trans,#yunoj-reentry,#yunoj-oj-config,#yunoj-ai,#yunoj-ai-cfg,#yunoj-trans-cfg{cursor:grab;font-family:system-ui,-apple-system,sans-serif;color:#222;box-sizing:border-box}',
+      '#yunoj-fab.yunoj-dragging,#yunoj-jump.yunoj-dragging,#yunoj-panel.yunoj-dragging,#yunoj-search.yunoj-dragging,#yunoj-random.yunoj-dragging,#yunoj-trans.yunoj-dragging,#yunoj-reentry.yunoj-dragging,#yunoj-oj-config.yunoj-dragging,#yunoj-ai.yunoj-dragging,#yunoj-ai-cfg.yunoj-dragging,#yunoj-trans-cfg.yunoj-dragging{cursor:grabbing}',
+      '#yunoj-jump .yunoj-a,#yunoj-panel label,#yunoj-panel input,#yunoj-panel button,#yunoj-search input,#yunoj-search select,#yunoj-random input,#yunoj-random select,#yunoj-oj-config input,#yunoj-ai-cfg input,#yunoj-ai-cfg select,#yunoj-trans-cfg input,#yunoj-trans-cfg select,#yunoj-trans-cfg textarea{cursor:pointer}',
+      '#yunoj-search input,#yunoj-random input,#yunoj-trans textarea,#yunoj-oj-config input,#yunoj-ai-cfg input,#yunoj-trans-cfg textarea{cursor:text}',
+      '#yunoj-search a,#yunoj-random a,#yunoj-trans a,#yunoj-oj-config a,#yunoj-ai a,#yunoj-ai-cfg a,#yunoj-trans-cfg a{cursor:pointer}',
+      '#yunoj-fab,#yunoj-jump,#yunoj-panel,#yunoj-search,#yunoj-random,#yunoj-trans,#yunoj-oj-config,#yunoj-ai,#yunoj-ai-cfg,#yunoj-trans-cfg{user-select:none;-webkit-user-select:none}',
+      '#yunoj-panel input,#yunoj-search input,#yunoj-random input,#yunoj-trans .yunoj-trans-body,#yunoj-oj-config input,#yunoj-ai-cfg input,#yunoj-ai-cfg select,#yunoj-ai .yunoj-ai-body,#yunoj-trans-cfg input,#yunoj-trans-cfg select,#yunoj-trans-cfg textarea{user-select:text;-webkit-user-select:text}',
       '#yunoj-fab{position:fixed;right:18px;bottom:18px;z-index:2147483000;width:44px;height:44px;border-radius:50%;border:none;background:#0969da;color:#fff;font-size:20px;cursor:grab;box-shadow:0 2px 8px rgba(0,0,0,.3)}',
       '#yunoj-fab:hover{background:#0550ae}',
       '#yunoj-panel{position:fixed;right:18px;bottom:72px;z-index:2147483001;width:220px;padding:12px;background:#fff;border:1px solid #ccc;border-radius:8px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.2)}',
@@ -1956,6 +2359,8 @@
       '#yunoj-jump .yunoj-statement-btn:hover{background:#1a7f37}',
       '#yunoj-jump .yunoj-search-toggle{background:#8250df}',
       '#yunoj-jump .yunoj-search-toggle:hover{background:#6639ba}',
+      '#yunoj-jump .yunoj-random-toggle{background:#7c3aed}',
+      '#yunoj-jump .yunoj-random-toggle:hover{background:#6d28d9}',
       '#yunoj-jump .yunoj-trans-toggle{background:#0ea5e9}',
       '#yunoj-jump .yunoj-trans-toggle:hover{background:#0284c7}',
       '#yunoj-jump .yunoj-ai-solve-toggle{background:#d97706}',
@@ -2003,6 +2408,40 @@
       '#yunoj-search .yunoj-search-targets{display:flex;flex-wrap:wrap;gap:6px}',
       '#yunoj-search .yunoj-search-btn{padding:5px 12px;border-radius:4px;color:#fff;text-decoration:none;font-size:12px;cursor:pointer;white-space:nowrap}',
       '#yunoj-search .yunoj-search-btn:hover{opacity:.85}',
+      // ---- 随机跳题 ----
+      '#yunoj-random{position:fixed;top:56px;right:12px;z-index:2147482998;width:340px;padding:12px;background:#fff;border:1px solid #ccc;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.2);font-size:13px;cursor:grab}',
+      '#yunoj-random.yunoj-dragging{cursor:grabbing}',
+      '#yunoj-random .yunoj-random-header{display:flex;align-items:center;gap:8px;margin-bottom:10px}',
+      '#yunoj-random .yunoj-random-title{font-weight:600;font-size:14px;flex:1}',
+      '#yunoj-random .yunoj-random-status{font-size:11px;color:#888;margin-right:4px;font-family:ui-monospace,Menlo,monospace}',
+      '#yunoj-random .yunoj-random-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:4px;color:#666;text-decoration:none;font-size:14px;cursor:pointer}',
+      '#yunoj-random .yunoj-random-btn:hover{background:#f0f0f0;color:#222}',
+      '#yunoj-random .yunoj-random-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}',
+      '#yunoj-random .yunoj-random-label{font-size:12px;color:#666;width:44px;flex-shrink:0}',
+      '#yunoj-random .yunoj-random-select{flex:1;min-width:0;padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;background:#fff;font-family:inherit;cursor:pointer;outline:none}',
+      '#yunoj-random .yunoj-random-select:focus{border-color:#0969da}',
+      '#yunoj-random .yunoj-random-dash{color:#999}',
+      '#yunoj-random .yunoj-random-input{flex:1;min-width:0;padding:5px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;outline:none;font-family:inherit;box-sizing:border-box;cursor:text}',
+      '#yunoj-random .yunoj-random-input:focus{border-color:#0969da;box-shadow:0 0 0 2px rgba(9,105,218,.15)}',
+      '#yunoj-random .yunoj-random-chk{display:flex;align-items:center;gap:4px;font-size:12px;color:#444;cursor:pointer}',
+      '#yunoj-random .yunoj-random-result{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;padding:8px 10px;border:1px solid #eaeef2;border-radius:6px;background:#fafbfc;font-size:12px}',
+      '#yunoj-random .yunoj-random-pid{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:600;color:#0969da;background:#e6f4ff;padding:1px 6px;border-radius:3px}',
+      '#yunoj-random .yunoj-random-diff{color:#fff;padding:1px 6px;border-radius:3px;font-size:11px}',
+      '#yunoj-random .yunoj-random-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#222}',
+      '#yunoj-random .yunoj-random-open{color:#0969da;text-decoration:none;flex-shrink:0}',
+      '#yunoj-random .yunoj-random-open:hover{text-decoration:underline}',
+      '#yunoj-random .yunoj-random-empty{color:#999;font-size:12px}',
+      '#yunoj-random .yunoj-random-progress{margin-bottom:8px}',
+      '#yunoj-random .yunoj-random-bar{height:4px;background:#eaeef2;border-radius:2px;overflow:hidden}',
+      '#yunoj-random .yunoj-random-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0ea5e9,#0969da);transition:width .2s}',
+      '#yunoj-random .yunoj-random-actions{display:flex;gap:8px;justify-content:flex-end;align-items:center}',
+      '#yunoj-random .yunoj-random-mini{padding:5px 12px;border:1px solid #ccc;border-radius:4px;background:#f6f8fa;color:#444;text-decoration:none;font-size:12px;cursor:pointer}',
+      '#yunoj-random .yunoj-random-mini:hover{background:#eaeef2;border-color:#999}',
+      '#yunoj-random .yunoj-random-go{padding:5px 14px;border:none;border-radius:4px;background:#7c3aed;color:#fff;text-decoration:none;font-size:12px;cursor:pointer;font-family:inherit}',
+      '#yunoj-random .yunoj-random-go:hover{background:#6d28d9}',
+      '#yunoj-toast{position:fixed;left:50%;bottom:32px;transform:translateX(-50%) translateY(16px);background:rgba(20,26,31,.92);color:#fff;font-size:13px;padding:8px 18px;border-radius:999px;opacity:0;pointer-events:none;transition:all .2s;z-index:2147483003;font-family:system-ui,sans-serif}',
+      '#yunoj-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}',
+      // ---- 翻译 ----
       '#yunoj-trans{position:fixed;top:56px;left:12px;z-index:2147482997;width:480px;max-height:80vh;display:flex;flex-direction:column;background:#fff;border:1px solid #ccc;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.2);font-size:13px}',
       '#yunoj-trans .yunoj-trans-header{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #eaeef2;background:#f6f8fa;border-radius:8px 8px 0 0;flex-shrink:0}',
       '#yunoj-trans .yunoj-trans-title{font-weight:600;font-size:13px;flex:1}',
@@ -2163,13 +2602,14 @@
 
   function init() {
     // 核心修复：清理可能残留的旧 UI 节点，防止 VJudge 等 SPA 网站出现双重工具栏/窗口
-    ['#yunoj-jump', '#yunoj-fab', '#yunoj-panel', '#yunoj-search', '#yunoj-trans', '#yunoj-ai', '#yunoj-ai-cfg', '#yunoj-trans-cfg', '#yunoj-ask', '#yunoj-oj-config', '#yunoj-reentry'].forEach(sel => {
+    ['#yunoj-jump', '#yunoj-fab', '#yunoj-panel', '#yunoj-search', '#yunoj-random', '#yunoj-trans', '#yunoj-ai', '#yunoj-ai-cfg', '#yunoj-trans-cfg', '#yunoj-ask', '#yunoj-oj-config', '#yunoj-reentry'].forEach(sel => {
       $$(sel).forEach(n => n.remove());
     });
 
     css();
     panel();
     searchPanel();
+    randomPanel();
     translationPanel();
     aiPanel();
     ojConfigPanel();
@@ -2178,10 +2618,10 @@
     applyDark();
     modifyLuckText();
     if (get('sample')) sampleCopy();
-    if (get('origin') || get('statement') || get('search') || get('translate') || get('ai')) jumpBar();
+    if (get('origin') || get('statement') || get('search') || get('random') || get('translate') || get('ai')) jumpBar();
     setTimeout(() => {
       if (get('sample')) sampleCopy();
-      if (!document.querySelector('#yunoj-jump') && (get('origin') || get('statement') || get('search') || get('translate') || get('ai'))) {
+      if (!document.querySelector('#yunoj-jump') && (get('origin') || get('statement') || get('search') || get('random') || get('translate') || get('ai'))) {
         jumpBar();
       } else {
         const bar = document.querySelector('#yunoj-jump');
@@ -2197,9 +2637,9 @@
       }
     }, 1500);
     window.addEventListener('resize', () => {
-      ['posBar', 'posSearch', 'posFab', 'posPanel', 'posTrans', 'posReentry', 'posOjConfig', 'posAi', 'posAiCfg'].forEach(key => {
+      ['posBar', 'posSearch', 'posRandom', 'posFab', 'posPanel', 'posTrans', 'posReentry', 'posOjConfig', 'posAi', 'posAiCfg'].forEach(key => {
         const s = get(key); if (!s) return;
-        const map = { posBar: '#yunoj-jump', posSearch: '#yunoj-search', posFab: '#yunoj-fab', posPanel: '#yunoj-panel', posTrans: '#yunoj-trans', posReentry: '#yunoj-reentry', posOjConfig: '#yunoj-oj-config', posAi: '#yunoj-ai', posAiCfg: '#yunoj-ai-cfg' };
+        const map = { posBar: '#yunoj-jump', posSearch: '#yunoj-search', posRandom: '#yunoj-random', posFab: '#yunoj-fab', posPanel: '#yunoj-panel', posTrans: '#yunoj-trans', posReentry: '#yunoj-reentry', posOjConfig: '#yunoj-oj-config', posAi: '#yunoj-ai', posAiCfg: '#yunoj-ai-cfg' };
         const elem = $(map[key]); if (elem) setPosition(elem, s.x, s.y);
       });
     });
