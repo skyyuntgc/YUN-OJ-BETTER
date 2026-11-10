@@ -2,7 +2,7 @@
 // @name         Yun OJ Better
 // @author       Sky-Yun
 // @namespace    https://github.com/skyyuntgc/YUN-OJ-BETTER
-// @version      1.9.1
+// @version      1.9.2
 // @description  通用 OJ 增强：AI 解答 + AI 对话、搜题、翻译、题面复制、深色模式、快速跳转，不收集用户数据，API Key 本地存储，题面会发往第三方 API
 // @match        *://*/*
 // @grant        GM_getValue
@@ -2135,7 +2135,7 @@
 
   function modifyLuckText() {
     if (!location.hostname.includes('luogu.com.cn')) return;
-    const replacements = { '大凶': '大区', '小凶': '小区', '中平': '中区', '小吉': '小区', '大吉': '大区' };
+    const replacements = { '大凶': '大区', '凶': '区', '中平': '中区', '小吉': '小区', '中吉:': '中区','大吉': '大区' };
     const changeText = (elem) => {
       if (!elem) return;
       let html = elem.innerHTML;
