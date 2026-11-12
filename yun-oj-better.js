@@ -2,7 +2,7 @@
 // @name         Yun OJ Better
 // @author       Sky-Yun
 // @namespace    https://github.com/skyyuntgc/YUN-OJ-BETTER
-// @version      1.10.0
+// @version      1.10.1
 // @description  通用 OJ 增强：AI 解答 + AI 对话、搜题、翻译、随机跳题、题面复制、深色模式、快速跳转，不收集用户数据，API Key 本地存储，题面会发往第三方 API
 // @match        *://*/*
 // @grant        GM_getValue
@@ -451,7 +451,15 @@
   // ============================================================
   // 翻译
   // ============================================================
-  function isMostlyChinese(text) { const sample = text.slice(0, 2000); if (!sample) return false; const cn = (sample.match(/[\u4e00-\u9fa5]/g) || []).length; return cn / sample.length > 0.25; }
+  // 修复：增加日文假名检测，防止日文被误判为中文而跳过翻译
+  function isMostlyChinese(text) {
+    const sample = text.slice(0, 2000);
+    if (!sample) return false;
+    // 包含平假名或片假名，直接判定为非中文
+    if (/[\u3040-\u309F\u30A0-\u30FF]/.test(sample)) return false;
+    const cn = (sample.match(/[\u4e00-\u9fa5]/g) || []).length;
+    return cn / sample.length > 0.25;
+  }
   function gmFetch(opts) { return new Promise((resolve, reject) => { if (typeof GM_xmlhttpRequest !== 'function') return reject(new Error('GM_xmlhttpRequest 不可用')); GM_xmlhttpRequest({ ...opts, onload: res => resolve(res), onerror: () => reject(new Error('网络错误')), ontimeout: () => reject(new Error('请求超时')) }); }); }
   async function translateGoogle(text, target = 'zh-CN') { const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(target)}&dt=t&q=${encodeURIComponent(text)}`; const res = await gmFetch({ method: 'GET', url, timeout: 15000 }); if (res.status !== 200) throw new Error('Google HTTP ' + res.status); const json = JSON.parse(res.responseText); const arr = json[0] || []; return arr.map(item => item[0] || '').join(''); }
   async function translateMyMemory(text, target = 'zh-CN') { const lp = `en|${target}`; const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(lp)}`; const res = await gmFetch({ method: 'GET', url, timeout: 15000 }); if (res.status !== 200) throw new Error('MyMemory HTTP ' + res.status); const json = JSON.parse(res.responseText); const t = json && json.responseData && json.responseData.translatedText; if (!t) throw new Error('MyMemory 无翻译结果'); return t; }
@@ -578,6 +586,13 @@
       try { const t = await translateText(src, target); if (aborted) return; nodes[i].textContent = t; nodes[i].style.opacity = '1'; outList.push(t); }
       catch (e) { if (aborted) return; nodes[i].textContent = '（翻译失败：' + (e.message || e) + '）'; nodes[i].classList.add('yunoj-trans-err'); nodes[i].style.opacity = '1'; outList.push(''); }
       done++; progFill.style.width = (done / paragraphs.length * 100).toFixed(1) + '%'; status.textContent = `${done} / ${paragraphs.length}`;
+      
+      // 修复：翻译流式输出时，如果用户没有往上翻，则自动跟随滚动到底部
+      const isNearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 100;
+      if (isNearBottom) {
+        body.scrollTop = body.scrollHeight;
+      }
+
       if (i < paragraphs.length - 1) await new Promise(r => setTimeout(r, 120));
     }
     body.dataset.plain = outList.filter(Boolean).join('\n\n');
@@ -2448,7 +2463,8 @@
       '#yunoj-trans .yunoj-trans-status{font-size:11px;color:#888;font-family:ui-monospace,Menlo,monospace;margin-right:4px}',
       '#yunoj-trans .yunoj-trans-btn{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:22px;padding:0 6px;border-radius:4px;font-size:12px;color:#444;text-decoration:none;background:#fff;border:1px solid #ddd;cursor:pointer;font-family:inherit}',
       '#yunoj-trans .yunoj-trans-btn:hover{background:#f0f0f0}',
-      '#yunoj-trans .yunoj-trans-body{overflow-y:auto;padding:10px 14px 14px;line-height:1.7;font-size:13.5px;color:#222;flex:1;min-height:80px}',
+      // 修复：将 min-height 改为 0，解决 Flex 容器内无法滚动的问题
+      '#yunoj-trans .yunoj-trans-body{overflow-y:auto;padding:10px 14px 14px;line-height:1.7;font-size:13.5px;color:#222;flex:1;min-height:0}',
       '#yunoj-trans .yunoj-trans-empty{color:#999;text-align:center;padding:24px 8px;font-size:12.5px}',
       '#yunoj-trans .yunoj-trans-para{margin-bottom:10px;padding-bottom:8px;border-bottom:1px dashed #eaeef2}',
       '#yunoj-trans .yunoj-trans-para:last-child{border-bottom:0;margin-bottom:0;padding-bottom:0}',
