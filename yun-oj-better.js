@@ -2,11 +2,13 @@
 // @name         Yun OJ Better
 // @author       Sky-Yun
 // @namespace    https://github.com/skyyuntgc/YUN-OJ-BETTER
-// @version      1.10.1
+// @version      1.10.2
+// @icon         https://cdn.luogu.com.cn/upload/usericon/1059100.png
 // @description  通用 OJ 增强：AI 解答 + AI 对话、搜题、翻译、随机跳题、题面复制、深色模式、快速跳转，不收集用户数据，API Key 本地存储，题面会发往第三方 API
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @license      MIT
 // @grant        GM_addStyle
 // @grant        GM_xmlhttpRequest
 // @connect      *
@@ -586,7 +588,7 @@
       try { const t = await translateText(src, target); if (aborted) return; nodes[i].textContent = t; nodes[i].style.opacity = '1'; outList.push(t); }
       catch (e) { if (aborted) return; nodes[i].textContent = '（翻译失败：' + (e.message || e) + '）'; nodes[i].classList.add('yunoj-trans-err'); nodes[i].style.opacity = '1'; outList.push(''); }
       done++; progFill.style.width = (done / paragraphs.length * 100).toFixed(1) + '%'; status.textContent = `${done} / ${paragraphs.length}`;
-      
+
       // 修复：翻译流式输出时，如果用户没有往上翻，则自动跟随滚动到底部
       const isNearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 100;
       if (isNearBottom) {
@@ -2679,3 +2681,27 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();
+/*
+MIT License
+
+Copyright (c) 2026 Sky-Yun
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
