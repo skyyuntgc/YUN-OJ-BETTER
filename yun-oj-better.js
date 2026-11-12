@@ -6,6 +6,7 @@
 // @icon         https://cdn.luogu.com.cn/upload/usericon/1059100.png
 // @description  通用 OJ 增强：AI 解答 + AI 对话、搜题、翻译、随机跳题、题面复制、深色模式、快速跳转，不收集用户数据，API Key 本地存储，题面会发往第三方 API
 // @match        *://*/*
+// @supportURL   https://github.com/skyyuntgc/YUN-OJ-BETTER/issues
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @license      MIT
